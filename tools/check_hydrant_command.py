@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import format_command_line, split_command_line  # noqa: E402
 
-#: 与 tools/fix_hydrant_command.py 里的 NEW_COMMAND 保持一致
+#: 期望的命令写法（与 bots_config.json 里消防栓的 command 保持一致）
 NEW_COMMAND = (
     'powershell -NoProfile -Command "Start-Process powershell -Verb RunAs '
     "-ArgumentList '-NoExit','-Command','cmd.exe /c start_hydrant.bat'\""

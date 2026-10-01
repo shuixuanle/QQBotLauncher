@@ -71,3 +71,24 @@ _tmp/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# ---------------------------------------------------------------------------
+# 开发过程产物：已从仓库移除（git rm --cached），但保留在本地 + git 历史里
+#   · tools/maintenance/*.py   一次性改动脚本（改 README/代码用的临时补丁）
+#   · tools/diagnostics/_*.py  临时诊断探针（当初定位某个 bug 时现写现用）
+# 想恢复某个文件到仓库：git add -f <path>
+# ---------------------------------------------------------------------------
+tools/maintenance/*.py
+tools/diagnostics/_chain_probe.py
+tools/diagnostics/_log_style_dump.py
+tools/diagnostics/_logcolor_probe.py
+tools/diagnostics/_menu_probe.py
+tools/diagnostics/_minimal_theme.py
+tools/diagnostics/_minimal_theme2.py
+tools/diagnostics/_nav_click_probe.py
+tools/diagnostics/_nav_diag2.py
+tools/diagnostics/_nav_state_dump.py
+tools/diagnostics/_nav_trace.py
+tools/diagnostics/_qss_parse_check.py
+tools/diagnostics/_selector_probe.py
+tools/diagnostics/启动诊断.vbs

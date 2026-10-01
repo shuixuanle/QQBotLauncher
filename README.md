@@ -209,7 +209,14 @@ python main.py
 | `--nav-debug` | `nav_debug.log` | 左侧栏高亮被重建抹掉、折叠状态不对 |
 | `--doctor` | 控制台 | 启动即报 `ImportError` / `NameError`（逐个模块导入） |
 
-`tools\diagnostics\` 下还有一批只读诊断脚本（颜色 dump、菜单栏状态、导航时序等），
+改完代码想一次跑完所有自检：
+
+```bat
+python tools\run_all_checks.py          :: 19 个检查器一次跑完，末尾汇总
+python tools\run_all_checks.py -v       :: 额外打印每个检查器的完整输出
+```
+
+`tools\diagnostics\` 下还有几个只读诊断脚本（颜色 dump、主题自检、日志区像素取色），
 详见 [tools/diagnostics/README.md](tools/diagnostics/README.md)。
 
 ### 3. 界面内的操作顺序
@@ -927,7 +934,7 @@ QQBot启动管理器/
 ├── tools/
 │   ├── check_names.py           # 静态检查：未定义全局名（能抓出忘 import 这类运行时才炸的错）
 │   ├── check_module_attrs.py    # 静态检查：跨模块属性名拼错
-│   └── diagnostics/             # 只读诊断脚本 + README（颜色 dump、菜单栏状态、导航时序…）
+│   └── diagnostics/             # 只读诊断脚本 + README（颜色 dump / 主题自检 / 像素取色）
 ├── scripts/
 │   └── start_hydrant.bat        # 需要管理员权限的程序示例（runas 提权启动脚本）
 ├── bots_config.json             # 机器人配置（首次运行自动生成）
