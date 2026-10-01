@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "shell": "cmd.exe",
+  "start_interval": 1.5,
+  "stop_timeout": 10.0,
+  "log_max_lines": 2000,
+  "bots": [
+    {
+      "id": "bot_atri",
+      "name": "ATRI",
+      "enabled": true,
+      "working_dir": "<你的机器人目录，例如 D:\\BOTBENTI\\示例机器人>",
+      "description": "对应 ATRI_start.bat：先起 Ollama 与 GPT-SoVITS，再起 ATRI-bot 主程序。",
+      "programs": [
+        {
+          "id": "prog_atri_ollama",
+          "name": "Ollama 服务",
+          "role": "secondary",
+          "command": "ollama serve",
+          "delay": 0.0,
+          "enabled": true,
+          "env": {
+            "OLLAMA_KEEP_ALIVE": "30m"
+          },
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        },
+        {
+          "id": "prog_atri_tts",
+          "name": "GPT-SoVITS TTS",
+          "role": "secondary",
+          "command": "api.bat",
+          "delay": 4.0,
+          "enabled": true,
+          "env": {
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONUTF8": "1"
+          },
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        },
+        {
+          "id": "prog_atri_main",
+          "name": "ATRI 主程序",
+          "role": "primary",
+          "command": "uv run main.py",
+          "delay": 6.0,
+          "enabled": true,
+          "env": {
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONUTF8": "1"
+          },
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        }
+      ]
+    },
+    {
+      "id": "bot_yumu",
+      "name": "雨沐",
+      "enabled": true,
+      "working_dir": "<你的机器人目录，例如 D:\\BOTBENTI\\示例机器人>",
+      "description": "对应 osubot启动.bat 的 [1] 雨沐 Bot 全套：本体 + 绘图 + OsuApiWrap。",
+      "programs": [
+        {
+          "id": "prog_yumu_main",
+          "name": "雨沐本体（jar）",
+          "role": "primary",
+          "command": "java -Xmx5120m -Xms2048m -XX:+UseZGC -server -jar [LATEST_JAR] --spring.config.location=D:\\BOTBENTI\\yumubot\\application.yaml",
+          "delay": 0.0,
+          "enabled": true,
+          "auto_latest_jar": true,
+          "env": {
+            "JAVA_TOOL_OPTIONS": "-Dfile.encoding=UTF-8"
+          },
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        },
+        {
+          "id": "prog_yumu_image",
+          "name": "绘图中转（yarn）",
+          "role": "secondary",
+          "command": "chcp 65001 >nul && yarn start",
+          "delay": 2.0,
+          "enabled": true,
+          "via_shell": true,
+          "env": {
+            "EXPORT_FILE": "D:\\BOTBENTI\\yumubotimg\\ExportFileV3"
+          },
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        },
+        {
+          "id": "prog_yumu_apiwrap",
+          "name": "OsuApiWrap",
+          "role": "secondary",
+          "command": "dotnet run --project OsuApi.csproj",
+          "delay": 4.0,
+          "enabled": true,
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        }
+      ]
+    },
+    {
+      "id": "bot_hydrant",
+      "name": "消防栓",
+      "enabled": true,
+      "working_dir": "<你的机器人目录，例如 D:\\BOTBENTI\\示例机器人>",
+      "description": "对应 osubot启动.bat 的 [2] 消防栓 Bot（NewHydrant），启动时会弹 UAC 提权。",
+      "programs": [
+        {
+          "id": "prog_hydrant_main",
+          "name": "NewHydrant 主程序",
+          "role": "primary",
+          "command": "cmd.exe /c start_hydrant.bat",
+          "delay": 0.0,
+          "enabled": true,
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        }
+      ]
+    },
+    {
+      "id": "bot_osuatri",
+      "name": "OsuAtri",
+      "enabled": true,
+      "working_dir": "<你的机器人目录，例如 D:\\BOTBENTI\\示例机器人>",
+      "description": "对应 osubot启动.bat 的 [3] OsuAtri Bot（Python / NoneBot）。",
+      "programs": [
+        {
+          "id": "prog_osuatri_main",
+          "name": "OsuAtri 主程序",
+          "role": "primary",
+          "command": "call .venv\\Scripts\\activate.bat && nb run",
+          "delay": 0.0,
+          "enabled": true,
+          "via_shell": true,
+          "env": {
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONUTF8": "1"
+          },
+          "cwd": "<相对 working_dir 的路径，或留空>"
+        }
+      ]
+    }
+  ]
+}

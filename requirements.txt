@@ -1,0 +1,4 @@
+PyQt6>=6.6.0
+
+# 仅打包 exe 时需要（python tools\build_exe.py 会检查）：
+# pyinstaller>=6.0

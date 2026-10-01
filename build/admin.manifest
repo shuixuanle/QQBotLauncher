@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!--
+    管理员模式的 exe 清单：requestedExecutionLevel = requireAdministrator。
+    双击时系统直接弹一次 UAC（不再由脚本/代码提权），之后所有子进程继承
+    管理员令牌 —— 需要提权的程序（如消防栓的 HttpListener）不再弹窗。
+
+    同时声明 DPI 感知与 Windows 兼容性，避免高分屏下界面发虚。
+  -->
+  <assemblyIdentity
+      type="win32"
+      name="QQBotLauncher.Admin"
+      version="1.0.0.0"
+      processorArchitecture="*"/>
+
+  <description>QQBot 启动管理器（管理员模式）</description>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+</assembly>

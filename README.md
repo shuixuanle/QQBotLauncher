@@ -1,0 +1,854 @@
+# QQBot 启动管理器
+
+基于 **PyQt6 + QProcess** 的 QQ 机器人启动管理器：一个机器人可以包含多个程序（主程序 + 若干副程序），
+按配置顺序依次拉起、实时查看每个程序的日志、一键停止整棵进程树、自动选择最新的 jar 包。
+
+---
+
+## 功能一览
+
+- **顶部只有一行工具栏**（顺序按"用得多 → 全局"，同一动作只挂一次）：
+  启动当前 Bot · 停止当前 Bot · 重启当前 Bot ▏
+  **打开全部窗口** · 查看已有 bot…（=按需挑一个打开）▏
+  新建 Bot · 编辑当前 Bot · 打开配置文件 ▏启动全部 · 停止全部。
+  它始终可用 —— 左栏折叠后就是它顶上来。
+- **浏览器式窗口标签栏**：实例区顶部，可点、可关、可拖动排序。
+  默认隐藏，**折叠左侧列表（Ctrl+L）或有已打开的窗口时自动出现**；
+  也可用「视图 → 显示窗口标签栏」手动常显。一个窗口都没打开时不显示。
+
+- **多机器人 / 多程序**：一个 Bot 可挂多个程序，角色分 `primary`（主程序）与 `secondary`（副程序）。
+- **两种日志布局**：只有一个程序时直接一个大日志窗口；多个程序时上方是大主程序日志窗口、下方是副程序标签页（标签在底部），中间分割条可拖动调比例，双击恢复默认 65:35。
+- **实时日志**：`QProcess` 捕获输出后逐行上屏；编码优先 UTF-8、失败自动回退 GBK，跨块截断的汉字不会乱码。
+- **进程树停止**：Windows 下先 `taskkill /T /PID`，超时再 `taskkill /T /F /PID`，最后兜底 `QProcess.kill()`，避免 java 子进程变孤儿。
+- **自动选最新 jar**：命令里写 `[LATEST_JAR]`（也兼容 `{jar}`），启动时替换为工作目录下修改时间最新的 `.jar`。
+- **右键菜单**：日志区右键可对单个程序或全部程序执行 启动 / 停止 / 重启 / 编辑配置 / 清空日志 / 复制日志 / 打开工作目录 / 关闭本页。
+- **界面记忆**：窗口大小位置、每个 Bot 的分割比例、当前选中的 Tab、上次打开的 Tab、左侧列表的折叠状态与宽度、启动间隔等通过 `QSettings` 保存。
+- **三态外观**：跟随系统 / 浅色 / 深色，**切换立即生效**，全局只有一套调色板（跟随系统 = 读系统深浅后套用我们自己的对应配色）。
+- **导航三态标记**：`▸ ` 全局唯一的"当前正在看的程序"、`▌ ` "已打开窗口的机器人"、蓝色高亮"选中行"，三者相互独立。
+- **分屏布局**：每个 Bot 可选 6 种模板（单窗格 / 上下 / 左右 / 左宽右上下 / 左右下 / 全标签）或自定义树，比例与焦点都会记住。
+- **安全退出**：关闭窗口时确认后统一停止所有进程，不留残余。
+
+---
+
+## 环境要求
+
+| 项目 | 要求 |
+| --- | --- |
+| 操作系统 | Windows 10 / 11（已针对中文 Windows 的 GBK 输出做过处理） |
+| Python | 3.9 及以上（开发环境实测 3.14） |
+| 依赖 | PyQt6 ≥ 6.6 |
+| 其他 | 被管理的程序自身需要的运行时（如 Java、Python）需已装好并可从命令行调用 |
+
+---
+
+## 一、安装依赖
+
+推荐先建虚拟环境（可选但更干净）：
+
+```bat
+cd /d "路径\QQBot启动管理器"
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+安装依赖：
+
+```bat
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+`requirements.txt` 内容：
+
+```
+PyQt6>=6.6.0
+```
+
+> 说明：`QProcess`、`QSettings` 都属于 PyQt6，JSON 用 Python 标准库，因此没有其他第三方依赖。
+> 若下载慢，可加国内镜像：`pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple`
+
+---
+
+## 二、运行方法
+
+### 在 cmd 里启动时，那个窗口能关吗？
+
+**直接敲 `python main.py` 时不能关** —— `python.exe` 会把那个 cmd 当作自己的控制台，
+关闭控制台会通知附加的进程，管理器随之退出。三种做法：
+
+| 做法 | 命令 | 说明 |
+| --- | --- | --- |
+| **只要界面（推荐）** | `python main.py --gui` | 用 `pythonw.exe` + `DETACHED_PROCESS` 脱离启动 → cmd 立刻回到提示符，**屏幕上只剩管理器界面**（零控制台） |
+| **要一个自己的控制台** | `python main.py --console` | 重启一个带独立控制台的进程 → 会**多出一个控制台窗口**（想看日志时用） |
+| **留在前台看输出** | `python main.py` | cmd 被占用，退出程序后才回到提示符（排障用） |
+
+日常使用直接双击 `启动（普通模式）.bat` 即可，它用 `start "" pythonw.exe main.py`
+分离启动，管理器不占用你的 cmd。
+
+### 0. 双击启动（推荐）
+
+| 方式 | 文件 | 控制台 | 需要 Python | 定位 |
+| --- | --- | --- | --- | --- |
+| **bat（主）** | `启动（普通模式）.bat` / `启动（管理员模式）.bat` | 会有（可设快捷方式"最小化运行"减轻） | 是（脚本自动挑选带 PyQt6 的解释器） | **日常 + 排障** |
+| **exe（可选）** | `dist\QQBot启动管理器.exe` / `（管理员）.exe` | **无** | 不需要（自带依赖） | 打包后最省事；**路径必须纯 ASCII** |
+| pyw（实验） | `启动管理器（普通）.pyw` / `（管理员）.pyw` | **无** | 是（靠 `.pyw` 关联到 `pyw.exe`） | 想零控制台时试 |
+
+**两个必须知道的坑**（都会在这两个文件里详细说明）：
+
+1. **exe 所在路径不能含中文** —— PyInstaller 的引导程序用窄字符 API 创建
+   `%TEMP%\_MEIxxxx`，中文路径会直接报
+   `Error: Could not create temporary directory!`。
+   解决：把 exe 复制到 `C:\QQBotLauncher\` 这类纯 ASCII 目录再运行。
+2. **双击 `.bat` 可能弹「无法验证发布者」** —— 这是 Windows 对未签名脚本的通行确认。
+   点「运行」即可；想彻底不弹，把项目目录加入 Defender 排除项。
+
+管理员模式的价值：启动时弹**一次** UAC，之后需要提权的程序（如消防栓的 HttpListener）
+**不再弹窗**（子进程继承管理员令牌）。普通模式下每启动一次就弹一次。
+
+细节（含"让 cmd 窗口变得不重要"的做法、exe 打包、安全警报的三种解法）见
+[启动方式说明.md](启动方式说明.md)。
+
+### 1. 正常启动（图形界面）
+
+```bat
+cd /d "路径\QQBot启动管理器"
+python main.py
+```
+
+首次运行会自动在项目根目录生成 `bots_config.json`（示例机器人 + 主/副两个程序）。
+仓库里**不含** `bots_config.json`（它保存着你本机的绝对路径与个人配置），
+只提供 [bots_config.example.json](bots_config.example.json) 供参考字段结构。
+
+### 2. 常用命令行参数
+
+```bat
+python main.py --config "D:\bots\my_config.json"   :: 指定配置文件（也可以在 GUI 里用「打开配置文件」查看）
+python main.py --bare                              :: 只做自检，输出摘要后退出（不开窗口）
+python main.py --selftest                          :: 同上（--bare 的别名）
+python main.py --theme dark                        :: 本次运行用深色界面（不写入偏好）
+python main.py --theme light                       :: 本次运行用浅色界面
+python main.py --theme dark --remember-theme       :: 用深色，并把偏好记住（下次启动继续用）
+python main.py --theme-debug                       :: 打印外观诊断（系统深浅 / 实际方案 / 调色板亮度），并写 theme_debug.log
+python main.py --elevate                           :: 以管理员身份重启自己（弹 1 次 UAC）；之后提权程序不再弹窗
+python main.py --console                           :: 申请独立控制台：关掉启动它的 cmd 也不影响管理器
+python main.py --elevate --keep-console            :: 同上，但保留控制台窗口（便于看输出）
+python main.py --nav-debug                         :: 记录左侧列表时序诊断（写 nav_debug.log）
+python main.py --doctor                            :: 逐个导入所有模块并检查，定位"启动即报错"用
+python main.py --help                              :: 查看用法
+```
+
+环境变量方式（与 `--config` 等价，命令行优先）：
+
+```bat
+set QQBOT_CONFIG=D:\bots\my_config.json
+python main.py
+```
+
+`--theme` 的取值：`system`（跟随系统，默认）/ `light` / `dark`，也接受 `深色`、`浅色` 这类中文写法。
+
+**诊断参数什么时候用**：
+
+| 参数 | 输出 | 用来排查 |
+| --- | --- | --- |
+| `--theme-debug` | 控制台 + `theme_debug.log` | 界面颜色不对：会打印「系统深浅 / 实际采用方案 / `styleHints` / Window 亮度 / 是否自建调色板」 |
+| `--nav-debug` | `nav_debug.log` | 左侧栏高亮被重建抹掉、折叠状态不对 |
+| `--doctor` | 控制台 | 启动即报 `ImportError` / `NameError`（逐个模块导入） |
+
+`tools\diagnostics\` 下还有一批只读诊断脚本（颜色 dump、菜单栏状态、导航时序等），
+详见 [tools/diagnostics/README.md](tools/diagnostics/README.md)。
+
+### 3. 界面内的操作顺序
+
+1. 工具栏 **新建 Bot** → 填 Bot 名称，点「添加」增加程序，逐项填写：
+
+   | 字段 | 说明 |
+   | --- | --- |
+   | 程序名称 | 仅用于显示，例如 `主程序`、`签名服务` |
+   | 角色 | `primary` 主程序 / `secondary` 副程序（决定分屏位置与启动顺序） |
+   | 工作目录 | 支持「浏览…」选择；相对路径以 `bots_config.json` 所在目录为基准 |
+   | 启动命令 | 例如 `java -jar [LATEST_JAR]`、`python main.py --port 8080` |
+   | 环境变量 | 键值对表格，例如 `JAVA_TOOL_OPTIONS = -Dfile.encoding=UTF-8` |
+   | 启动延迟 | 该程序在同一次启动中等待多少秒后再拉起 |
+   | 自动选最新 jar | 勾选后按修改时间取工作目录下最新的 `.jar` |
+   | 通过命令解释器启动 | 勾选后整条命令交给 `cmd.exe /c` 执行，这样才能用 `&&`、`|`、`>`、`chcp` 等 cmd 语法，例如 `chcp 65001 >nul && yarn start` |
+
+> **命令写法小抄**
+> - 直接启动可执行文件（默认，不勾选）：`java -jar [LATEST_JAR]`、`uv run main.py`、`dotnet run --project OsuApi.csproj`
+> - 需要 `&&` / 管道 / 重定向 / `chcp`：勾选「通过命令解释器启动」，命令写 `chcp 65001 >nul && yarn start`
+> - `.bat` / `.cmd` 脚本无需勾选，程序会自动用 `cmd.exe /c` 包裹
+> - 环境变量请填在「环境变量」表格里（用 `SET X=Y && ...` 写进命令只在该条命令内有效，且容易踩引号的坑）
+> - 需要管理员权限的程序（例如消防栓 NewHydrant），命令写成
+>   `powershell -NoProfile -Command "Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-Command','cmd.exe /c \"\"<批处理路径>\"\"'"`
+>   这样启动时会弹 UAC 提权，环境变量与工作目录在批处理内部设置
+
+2. 点 **保存** → 配置立即写入 `bots_config.json`。
+3. 点 **启动当前 Bot**（或右键菜单「启动」）→ 自动打开 Tab 并依次拉起程序。
+4. 需要改配置时点 **编辑当前 Bot**，或在日志区右键「编辑配置」。
+
+> 快捷键：`Ctrl+N` 新建 · `Ctrl+E` 编辑 · `Ctrl+B` 查看已有 bot · `F5` 启动当前 Bot ·
+> `Shift+F5` 停止 · `Ctrl+R` 重启 · `Ctrl+Shift+O` 打开配置文件 · `F6` 重新载入配置 ·
+> `Ctrl+W` 关闭当前窗口 · `Ctrl+Shift+W` 关闭全部窗口 · `Ctrl+L` 折叠/展开左侧列表 ·
+> `Ctrl+Shift+D` 浅色 ⇄ 深色 快切 · `Ctrl+Tab` / `Ctrl+Shift+Tab` 切换窗口 ·
+> `Ctrl+1`…`Ctrl+9` 跳到第 N 个机器人
+
+> 鼠标：左栏**单击**条目＝打开对应窗口并聚焦那个程序（高亮随 `▸` 落位）· **Ctrl/Shift+单击**＝只选中 ·
+> **双击机器人条目**＝展开/折叠该节点 ·
+> 每个窗格标题栏可单独 启动/停止/重启/清空 · 日志区右键＝菜单（含「布局」） ·
+> 左栏右键＝菜单（含「分屏布局」） · 拖动窗格之间的分割条＝调比例 · 双击分割条＝恢复默认比例
+
+> 左侧列表的状态符号：`●` 运行中 · `◐` 启动中/停止中/部分运行 · `○` 未运行 · `!` 异常；
+> `［2/3］` 表示 3 个程序里有 2 个在运行；`★` 为主程序。
+> 菜单「帮助 → 状态图例与快捷键…」里有同一份说明。
+
+### 3.1 界面布局（左侧竖栏 + 右侧实例区）
+
+```
+┌─────────────┬──────────────────────────────────────────────┐
+│ 查看已有 bot │                                              │
+│ 编辑或新建 bot│            右侧实例区                        │
+├─────────────┤   （当前机器人的日志：单程序一个大窗口；      │
+│ ● ATRI ［2/3］│     多程序上主下副，中间可拖动分割条）        │
+│   ★ 主程序 运行中│                                          │
+│     ollama  未运行│                                        │
+│     gptsovits 运行中│                                      │
+│ ● OsuAtri ［0/1］│                                          │
+├─────────────┤                                              │
+│ 打开 停止 关闭窗口│                                          │
+└─────────────┴──────────────────────────────────────────────┘
+```
+
+- **左侧竖栏**：列出配置里的**全部**机器人（不只是打开了的）。每个机器人一行显示状态圆点与运行计数，
+  展开后能看到每个程序的状态（★ 表示 primary 主程序）。
+  **左键单击**机器人条目即打开它的窗口（焦点落在主程序窗格，高亮也落到主程序那一行）；
+  **单击某个程序条目**则打开窗口并把焦点切到该程序的窗格（必要时自动切到对应标签页）；
+  按住 **Ctrl 或 Shift 单击**只选中、不打开窗口（方便浏览列表）；
+  **双击机器人条目** = 展开 / 折叠该节点（双击程序条目无副作用）。
+**点顶部标签栏** = 切到那个机器人的窗口（等价于在左栏点它，高亮同样落到它的焦点程序行）；
+标签上的 ✕ = 关闭该窗口（有程序在跑会先询问）；右键标签栏 = 关闭这个/其它/全部窗口。
+- **关闭窗口 ≠ 停止程序**：点「关闭窗口」（或 `Ctrl+W`）只关界面，程序继续在后台运行，
+  左侧列表仍会显示它"运行中"；要结束进程请点「停止」。
+- 窗口全部关掉之后，右侧显示空状态页（可一键新建 / 查看已有 bot / 打开全部窗口）。
+- 左栏右侧的分割条可拖动调整宽度；`Ctrl+L` 或「视图 → 折叠左侧列表」可整栏折叠；
+  宽度比例、展开的机器人、当前窗口都会记入 QSettings，下次启动自动恢复。
+
+### 3.2 右侧分屏布局（每个程序一格 cmd/终端）
+
+一个机器人有多个程序时，右侧可以切成若干**窗格**，每个窗格显示某一个程序的
+cmd / 终端实时输出（就是日志面板本身，按程序 key 分发，彼此独立、互不串台）。
+
+```
+上下分屏（默认，主程序在上）        左右分屏（主程序在左）
+┌───────────────────────────┐      ┌─────────────┬─────────────┐
+│ ● 主程序（主程序） 运行中   │      │ ● 主程序     │ 标签页：     │
+│   [启动][停止][重启][清空] │      │             │ ollama │ tts │
+│   ── cmd 输出 ──           │      │  cmd 输出    │  cmd 输出    │
+├───────────────────────────┤      │             │             │
+│ 标签页： ollama │ tts      │      │             │             │
+│   ── 当前标签的 cmd 输出 ──│      │             │             │
+└───────────────────────────┘      └─────────────┴─────────────┘
+```
+
+**六个模板**（`视图 → 分屏布局` / 日志区右键 `布局` / 左栏右键 `分屏布局` / 控制条「布局 ▾」）：
+
+| 模板 | 说明 |
+| --- | --- |
+| `上下分屏（主程序在上）` | 默认。上半格主程序独占，下半格其余程序做成底部标签页 |
+| `左右分屏（主程序在左）` | 左右两格；右侧仍是其余程序的标签页 |
+| `左右分，左侧再上下分` | 先左右切，左格再上下切成两格（共 3 格） |
+| `左右分，右侧再上下分` | 先左右切，右格再上下切成两格（共 3 格） |
+| `单窗格 + 全部标签` | 只留一格，所有程序用底部标签切换（省屏幕） |
+| `只看主程序` | 只显示主程序一格，其它程序不占空间（仍可在左栏操作它们） |
+
+- **每个窗格自带标题栏**：`程序名（角色） · 状态圆点 · PID`，右侧是 `启动 / 停止 / 重启 / 清空日志`
+  四个小按钮——只作用于该窗格里的程序，互不影响。
+- **拖动分割条**调整比例；比例按"分割节点路径"记住（例如 `h0`、`h0/v1`），下次打开同一布局即还原。
+- **窗口没打开也能先设**：菜单里选布局会先记进 QSettings，并提示"打开窗口后生效"。
+- **建 Bot 时就能选**（N4）：`新建 Bot` / `编辑当前 Bot` 对话框里的 **「布局模板」** 下拉，
+  可选 `自动（按程序数量决定）` 或上面六个模板之一 —— 保存后：
+  - 该机器人的窗口**已经打开** → 立刻切换成所选布局；
+  - **还没打开** → 记进 QSettings，下次打开就按它构建；
+  - 选 `自动` → 删掉该机器人的布局记忆，回到默认规则（1 个程序单窗格 / 2 个上下分 / 3 个以上主程序在上）。
+- **应用到全部机器人**：菜单里的这一项会把当前模板套到所有机器人。
+- **自定义布局**（拖出来的布局）会自动识别为 `custom` 并把整棵树记进 QSettings；
+  如果某个机器人当前是 `custom`，编辑对话框的下拉里会**多出**一项「自定义（拖出来的布局）」，
+  选它即保持自定义布局不变。
+- 布局属于**本机界面偏好**，**不写进 `bots_config.json`**：换机器导入同一份配置时，
+  布局按新机器的习惯从默认开始；想清空某个机器人的布局记忆，用菜单里的「恢复默认布局」
+  或在编辑对话框里选「自动」。
+
+> 小技巧：程序很多时用「单窗格 + 全部标签」省地方；盯两个程序时用「左右分屏」；
+> 三个程序想看全部时用「左右分，右侧再上下分」。
+
+### 3.3 外观（浅色 / 深色 / 跟随系统）
+
+三种模式，**切换立即生效**（不用重启，也不用点确定）：
+
+| 模式 | 说明 |
+| --- | --- |
+| **跟随系统**（默认） | 读 Windows 的浅色/深色偏好，然后套用**我们自己的**对应配色；在系统里切换主题时，界面约 2 秒内自动跟着变 |
+| **浅色模式** | 始终浅色：柔和黄灰底（`#f0efe9`）＋ 近黑字（`#1f1f1f`），日志区白底 |
+| **深色模式** | 始终深色：窗口 `#2b2b2b`、日志区 `#1e1f22`、文字 `#d6d6d6` |
+
+**四个切换入口**：
+
+| 入口 | 位置 |
+| --- | --- |
+| 菜单 | **视图 → 外观** → 跟随系统 / 浅色模式 / 深色模式（单选，展开时同步勾选） |
+| 快捷键 | **`Ctrl+Shift+D`** 在浅色 ⇄ 深色之间快切（切到显式模式后就不再跟随系统） |
+| 运行参数 | **视图/工具栏 → 运行参数** → 「外观」下拉（**改动立即生效**，不需要点确定） |
+| 命令行 | `python main.py --theme dark`（临时覆盖，不写偏好）；加 `--remember-theme` 才记住 |
+
+- **记忆位置**：偏好写在注册表的 `ui/theme`（`system` / `light` / `dark`），属于**本机界面偏好**，
+  不会写进 `bots_config.json`；想回到跟随系统，选菜单里的「恢复为跟随系统」或删掉这个键。
+- **启动不闪屏**：外观在创建主窗口**之前**就应用好了，所以选了深色不会先亮一屏再变暗。
+- **配色永远是"我们自己的两套"**：程序不会把调色板交还给系统。
+  跟随系统只是"读一次系统偏好（深/浅），然后套用对应那套"——
+  这样全局任何时刻只有**一套**调色板，不会出现"系统色 / 我们的色 / 菜单栏自己的色"三套打架。
+- **哪些地方会跟着变**：菜单栏、工具栏、左栏（列表/按钮/提示）、空状态页、
+  每个窗格的标题栏与焦点边框、日志区、状态栏、所有已打开的对话框
+  （含「查看已有 bot」表格里的状态色）；运行中切换时已打开窗口与对话框都会**当场**刷新。
+- **日志区配色**：浅色下白底深字，深色下深底浅字（跟随主题）。
+  它是用**控件调色板**着色的（不是只靠样式表），所以切换后一定会重绘。
+- **菜单栏使用 Qt 自绘**：为了让菜单栏颜色可控（Windows 原生菜单栏不跟随应用主题，
+  曾出现"深色模式黑字 / 浅色模式白字"），程序关闭了原生菜单栏
+  （`setNativeMenuBar(False)`）。代价是没有系统菜单栏的圆角与动画。
+- **状态颜色不受主题影响**：`●` 运行中的绿、`◐` 启动中的黄、`!` 异常的红在三套配色下都一样，
+  方便一眼判断，只是文字/底色的明暗会跟着主题走。
+
+> 小技巧：晚上挂机时按 `Ctrl+Shift+D` 切深色；白天想看日志细节再按一次切回浅色。
+> 如果你希望"我手动选过就固定下来"，那就别选「跟随系统」——显式模式下程序会忽略系统主题变化。
+
+**排查颜色问题**：
+
+```bat
+python main.py --theme-debug
+```
+
+会打印类似（同时写入 `theme_debug.log`）：
+
+```
+[启动-应用外观后] mode=system 系统=light 实际=light hint=light scheme=light Window亮度=237 调色板偏深=False 自建调色板=True
+```
+
+字段含义：
+
+| 字段 | 说明 |
+| --- | --- |
+| `mode` | 你选的模式（`system` / `light` / `dark`） |
+| `系统` | 从 Windows 读到的真实偏好（`os_scheme()`，读注册表 `AppsUseLightTheme`） |
+| `实际` | **真正生效**的方案（永远是 `light` / `dark`） |
+| `hint` | `QStyleHints.colorScheme()` 的值（会被我们自己设过，仅作参考） |
+| `Window亮度` | 调色板 Window 角色的亮度：深色应 < 128、浅色应 ≥ 128 |
+
+
+### 4. 配置文件长什么样
+
+```json
+{
+  "version": 1,
+  "shell": "cmd.exe",
+  "start_interval": 1.0,
+  "stop_timeout": 10.0,
+  "log_max_lines": 2000,
+  "bots": [
+    {
+      "id": "bot_1a2b3c4d",
+      "name": "示例机器人",
+      "qq": "123456789",
+      "working_dir": "bots/example",
+      "enabled": true,
+      "auto_start": false,
+      "programs": [
+        {
+          "id": "prog_11112222",
+          "name": "主程序",
+          "role": "primary",
+          "cwd": "bots/example",
+          "command": "java -jar [LATEST_JAR]",
+          "env": { "JAVA_TOOL_OPTIONS": "-Dfile.encoding=UTF-8" },
+          "delay": 0.0,
+          "auto_latest_jar": true,
+          "args": [],
+          "enabled": true,
+          "description": "主机器人本体"
+        },
+        {
+          "id": "prog_33334444",
+          "name": "副程序",
+          "role": "secondary",
+          "cwd": "bots/example",
+          "command": "python plugin_host.py --port 8080",
+          "env": { "PYTHONIOENCODING": "utf-8" },
+          "delay": 5.0,
+          "auto_latest_jar": false,
+          "args": [],
+          "enabled": true,
+          "description": "插件宿主"
+        }
+      ]
+    }
+  ]
+}
+```
+
+文件损坏时程序会自动把它备份成 `bots_config.json.broken-<时间戳>` 并重建默认配置，不会直接丢数据。
+
+---
+
+## 三、打包成无控制台 EXE（PyInstaller）
+
+### 1. 安装 PyInstaller
+
+```bat
+pip install pyinstaller
+```
+
+### 2. 一条命令完成打包
+
+在 **项目根目录**（含 `main.py` 的那一层）执行：
+
+```bat
+pyinstaller --noconfirm --clean --onefile --windowed ^
+  --name "QQBot启动管理器" ^
+  --paths . ^
+  --hidden-import app --hidden-import app.config --hidden-import app.process_manager ^
+  --hidden-import app.ui --hidden-import app.ui.main_window --hidden-import app.ui.bot_tab ^
+  --hidden-import app.ui.program_widget --hidden-import app.ui.edit_bot_dialog ^
+  --exclude-module tkinter ^
+  main.py
+```
+
+- `--windowed`（等价于 `--noconsole`）：**不弹黑色控制台窗口**，双击即用。
+- `--onefile`：打包成单个 exe；若希望启动更快，可去掉它，改用文件夹模式（`dist\QQBot启动管理器\`）。
+- `--paths .`：让 PyInstaller 能找到 `app` 包；`--hidden-import` 逐条列出子模块，避免动态导入被漏掉。
+- `--exclude-module tkinter`：减小体积（本项目不使用 Tkinter）。
+
+如需自定义图标，追加（图标文件先准备好）：
+
+```bat
+  --icon "assets\app.ico"
+```
+
+打包结果：`dist\QQBot启动管理器.exe`。
+
+### 3. 用 spec 文件打包（推荐，便于重复构建）
+
+先执行一次上面的命令生成 spec，然后把 `QQBot启动管理器.spec` 的内容改成下面这样，之后每次只需 `pyinstaller --noconfirm "QQBot启动管理器.spec"`：
+
+```python
+# -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_submodules
+
+hidden = collect_submodules("app")
+
+a = Analysis(
+    ["main.py"],
+    pathex=["."],
+    binaries=[],
+    datas=[],
+    hiddenimports=hidden,
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=["tkinter"],
+    noarchive=False,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name="QQBot启动管理器",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,          # 无控制台窗口
+    disable_windowed_traceback=False,
+    icon="assets/app.ico",  # 没有图标文件就删掉这一行
+)
+```
+
+一行版（spec 已存在时）：
+
+```bat
+pyinstaller --noconfirm --clean "QQBot启动管理器.spec"
+```
+
+### 3.5 一键打包（推荐）：两个"双击即用"的 exe
+
+本目录已带好全套 spec，直接用项目里的脚本即可：
+
+```bat
+python tools\build_exe.py            :: 前置检查 + 打包两个 exe
+python tools\build_exe.py --check    :: 只做前置检查
+python tools\build_exe.py --one      :: 只打普通模式
+python tools\build_exe.py --admin    :: 只打管理员模式
+```
+
+产出（`dist\`）：
+
+| 文件 | 控制台 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| `QQBot启动管理器.exe` | 无 | 普通 | 需要提权的程序启动时弹一次 UAC |
+| `QQBot启动管理器（管理员）.exe` | 无 | **管理员** | 内嵌 `requireAdministrator` 清单：双击弹**一次** UAC，之后提权程序不再弹 |
+
+为什么推荐打包：
+
+- **不再依赖"哪个 Python 装没装 PyQt6"** —— 解释器与依赖都打进 exe；
+- 没有控制台窗口，也没有 `.bat` 的**脚本执行确认框**；
+- 可以直接建快捷方式、放进 `shell:startup` 开机自启。
+
+打包后：`bots_config.json` 会生成在 **exe 旁边**（`app/config.py` 里 `bundle_root()`
+对 `sys.frozen` 做了特判），把 exe 连同 `scripts\` 一起复制到别处也能自洽运行。
+
+> **⚠️ exe 所在路径必须不含中文**：PyInstaller 单文件 exe 启动时把自己解包到
+> `%TEMP%\_MEIxxxx`，引导程序（运行在 Python 之前）用的是窄字符路径 API，
+> 中文路径会导致 `Error: Could not create temporary directory!`。
+> 把 exe 复制到 `C:\QQBotLauncher\` 这类纯 ASCII 目录再运行即可
+> （`bots_config.json` 会生成在 exe 旁边）。
+
+> 打包机需要 `pip install pyinstaller`（PyQt6 环境本身要有，`tools\build_exe.py`
+> 会先检查这两项再动手）。
+
+### 4. 打包后怎么部署
+
+```
+D:\QQBot\                       ← 建议的部署目录
+├── QQBot启动管理器.exe          ← 打包产物，双击运行
+├── bots_config.example.json    ← 配置示例（仓库不含真实配置）
+├── .gitignore                  ← 忽略配置/日志/打包产物
+└── bots\                       ← 各机器人的工作目录（按你的实际情况组织）
+    └── example\
+        ├── mirai-2.7.0.jar
+        └── plugin_host.py
+```
+
+---
+
+## 四、bots_config.json 放在哪里
+
+程序按下面的顺序定位配置文件，先命中先用：
+
+| 优先级 | 位置 | 说明 |
+| --- | --- | --- |
+| 1 | 命令行 `--config <路径>` | 例如 `QQBot启动管理器.exe --config D:\bots\my.json`；也可直接给一个目录，程序会取该目录下的 `bots_config.json` |
+| 2 | 环境变量 `QQBOT_CONFIG` | 值为文件路径或目录路径 |
+| 3 | 上次使用过的路径 | 由 `QSettings` 记住（见下），GUI 里下次启动自动沿用 |
+| 4 | **默认位置** | 源码运行：项目根目录（与 `main.py` 同级）<br>打包运行：**EXE 所在目录**（与 `QQBot启动管理器.exe` 同级） |
+
+要点：
+
+- **打包后不要把配置放在 exe 内部**：`--onefile` 的解包目录是临时目录，退出即删。本项目已处理这一点，
+  打包运行时默认读写的就是 **exe 旁边**的 `bots_config.json`。
+- 配置里的相对路径（`cwd`、命令中的相对路径）都以 `bots_config.json` **所在目录**为基准，
+  所以整个目录可以整体搬到别的盘或别的机器。
+- 文件不存在时会自动生成默认示例配置；也可以在 GUI 里点 **打开配置文件**（`Ctrl+Shift+O`）用记事本直接改，改完按 `F6` 重新载入。
+- 希望换一份配置又不想动默认文件时，用 `--config` 或 `QQBOT_CONFIG` 指向新文件即可，程序会记住这个路径。
+
+### 界面状态的存放位置（QSettings）
+
+除配置文件外，程序还用注册表保存界面状态（不写任何文件）：
+
+```
+HKEY_CURRENT_USER\Software\QQBotLauncher\QQBot启动管理器
+```
+
+里面包括：
+
+| 键 | 作用 |
+| --- | --- |
+| `window/geometry` / `window/state` | 窗口大小位置、工具栏/状态栏状态 |
+| `window/current_bot` | 当前显示的机器人（旧版是 `window/current_tab`，只读兼容一次） |
+| `open/bots` | 上次打开的机器人窗口列表（下次启动自动恢复） |
+| `nav/split` · `nav/collapsed` · `nav/expanded` | 左侧列表的宽度、是否折叠、哪些机器人是展开的 |
+| `pane/layout/<bot_id>` | 该机器人的分屏模板（`v`/`h`/`h_left_v`/`h_right_v`/`tabs`/`single`/`custom`） |
+| `pane/tree/<bot_id>` | `custom` 布局的完整树（紧凑 JSON） |
+| `pane/sizes/<bot_id>/<path>` | 各分割节点的比例（例如 `pane/sizes/bot_atri/h0`） |
+| `pane/focus/<bot_id>` | 上次聚焦的程序（重开窗口时还原焦点） |
+| `ui/theme` | 外观：`system` / `light` / `dark`（视图 → 外观，或 `--theme` + `--remember-theme`） |
+| `split/<bot_id>` | 旧版单层分割比例，**只读兼容**：新键没命中时用它迁移一次 |
+| `start/interval` · `process/stop_timeout` · `log/max_lines` | 「运行参数」里的三个数值 |
+| `config/path` | 上次使用的配置文件路径（`--config` 会更新它） |
+| `ui/hint_shown` | 是否已经提示过首次使用说明 |
+
+### 左侧列表的记忆规则（`nav/*`）
+
+| 键 | 含义 | 默认（无记录时） |
+| --- | --- | --- |
+| `nav/bot_tab_bar` | 是否手动常显实例区顶部的标签栏（左栏折叠时无论如何都显示） |
+| `nav/collapsed` | 左侧列表是否折叠 | **展开** || `nav/split` | `[左栏宽度, 右侧宽度]`；只在**展开**时写入（不会存成 0） | 280 |
+| `nav/expanded` | 哪些机器人节点是展开的（`\` 分隔的 id 串） | 全部展开 |
+
+- 语义是**如实还原上次状态**：你折叠了，下次启动就是折叠；你展开了，下次就是展开。
+- 宽度会被夹在 `[180, 640]` 之间（拖动再窄也不会变成"一条缝"）。
+- 折叠状态下**不会**把 `0` 写进 `nav/split`，所以展开后宽度还是原来的值。
+- `Ctrl+L` 或「视图 → 展开/折叠左侧列表」随时切换，状态立刻落盘。
+
+> **实现提示（避免踩同一个坑）**：注册表里 QSettings 写的布尔读回来是**字符串**
+> `'true'`/`'false'`，而 Python 里 `bool('false') is True`（非空字符串恒为真）。
+> 所以读布尔一律走 `settings_bool()`（`app/ui/main_window.py`），
+> 直接用 `bool(...)` 会把"展开"误判成"折叠"。
+
+> **布局记忆在哪、怎么清**：布局与比例属于本机界面偏好，都在这份注册表里，
+> **不会**写进 `bots_config.json`（所以换机导入配置时布局从默认开始）。
+> 想只清布局：用菜单「恢复默认布局」，或删掉 `pane` 键：
+> ```bat
+> reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\pane" /f
+> ```
+>
+> **外观记忆**同理：想回到跟随系统，用菜单「外观 → 恢复为跟随系统」，或
+> ```bat
+> reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\ui" /f
+> ```
+>
+> **左侧列表记忆**：想恢复成"默认展开 + 280 宽"：
+> ```bat
+> reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
+> ```
+
+想恢复出厂界面状态：删掉整个注册表项即可（配置文件和机器人列表不受影响）。
+
+```bat
+reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器" /f
+```
+
+---
+
+## 五、常见问题
+
+**1. 双击 exe 一闪而过 / 没有任何反应**
+先确认是否是「无控制台 + 启动即崩溃」。临时排查办法：用命令行运行 `QQBot启动管理器.exe` 看输出，
+或查看 exe 旁边的 `launcher_error.log`（程序会把未捕获异常写进这个文件）。
+
+**2. 日志中文是乱码**
+程序会先按 UTF-8 解码、失败回退 GBK，并且同一进程只判定一次编码。
+如果被管理程序输出的是 UTF-16 等其它编码，建议在它的启动命令里显式指定编码，
+例如给 Java 程序加环境变量 `JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8`。
+
+**3. 点「停止」后进程还在**
+程序使用 `taskkill /T` 结束整棵进程树，若被杀进程以管理员权限运行，普通权限的 taskkill 会被拒绝（Access denied）。
+解决办法：用管理员身份运行本管理器，或给被杀程序所在的目录加杀毒/安全软件白名单。
+
+**4. 提示找不到 java / python**
+`QProcess` 直接执行命令，不经过 `cmd /c`，因此命令必须在 `PATH` 中可直接调用。
+两种解决方式：把 `java`/`python` 的完整路径写进命令，或在「环境变量」里补 `PATH`。
+
+**5. 需要管道 / 重定向（`|`、`>`）**
+默认是直接启动可执行文件，管道交由 cmd 处理。需要管道时把命令写成
+`cmd.exe /c "xxx | yyy"`，或把可执行文件换成 `.bat` 脚本（程序会自动用 `cmd.exe /c` 包裹 `.bat`/`.cmd`）。
+
+**6. 打包后提示缺少 Qt 平台插件**
+本项目只用 QtCore/QtGui/QtWidgets，PyInstaller 官方钩子会自动带上 `platforms\qwindows.dll`。
+若手工改过 spec 导致缺失，删掉 `build\` 与 `dist\` 重新打包，或改用文件夹模式（去掉 `--onefile`）。
+
+**7. 想让程序开机自动启动**
+把 exe 的快捷方式放进「启动」文件夹（`shell:startup`）。
+注意：程序本身不会自动拉起机器人，启动后需要点「启动当前 Bot」或「启动全部」，以免在不知情时占用资源。
+
+**8. 界面太亮 / 太暗，或者某个控件没跟着换色**
+用 **视图 → 外观** 或 `Ctrl+Shift+D` 切一次即可（立即生效，已打开的窗口和对话框都会跟着刷）；
+具体见 [§3.3 外观](#33-外观浅色--深色--跟随系统)。
+
+排查顺序（先看数值，别靠肉眼猜）：
+
+1. `python main.py --theme-debug` —— 看「系统 / 实际 / Window亮度」三个字段。
+   深色应 < 128、浅色应 ≥ 128；`实际` 必须与 `Window亮度` 一致。
+2. 若菜单栏颜色不对（例如深色下是黑字）：程序已改为 **Qt 自绘菜单栏**
+   （`setNativeMenuBar(False)`），因为 Windows 原生菜单栏不跟随应用主题，
+   会出现"深色模式黑字 / 浅色模式白字"。
+3. 若右侧**日志区**不跟主题：它现在是用**控件调色板**着色的
+   （`apply_log_palette()`），比只写样式表可靠 —— 若仍不对，
+   用 `python tools\diagnostics\_theme_dump.py` 打印各处实际颜色。
+4. 若切到深色后**窗口标题栏还是白的**：那是 Windows 自己的非客户区
+   （Qt 无法完全控制），属于系统行为，不影响使用。
+
+**9. 我想让深色一直生效，不要跟着系统变**
+选「深色模式」（而不是「跟随系统」）——显式模式下程序会忽略系统主题变化，
+并把偏好写进 `ui/theme`，下次启动直接就是深色（启动时就已经应用，不会先亮一下）。
+
+**10. 系统是深色，但我想要浅色界面**
+选 `视图 → 外观 → 浅色模式` 即可。程序会用**自己那套浅色调色板**
+（不再依赖 Qt 的 `setColorScheme()` 是否在 Windows 上生效），所以一定能变浅：
+```bat
+python main.py --theme light
+```
+
+**11. 左侧列表折叠状态记不住 / 展开后变不回来**
+语义是**如实还原上次状态**（折叠过就是折叠，展开过就是展开），没有记录时默认**展开**。
+若行为不符，先删掉记忆重试：
+```bat
+reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
+```
+细节与实现注意事项见 [§ 界面状态的存放位置](#界面状态的存放位置qsettings)。
+
+**12. 左栏的 `▸` 是什么意思，为什么只有一个**
+`▸` 标记的是**当前窗口里正在显示的那个程序**（全局唯一）：
+- `▸ ` = 当前正在看的程序（前缀两字符宽，与 `▌` 对齐）
+- `▌ ` = 该机器人已经打开了窗口（不是当前显示的那个）
+- 蓝色高亮 = 用键盘/鼠标**选中**的那一行（与上面两个标记相互独立）
+
+所以你会看到"选中的行"和"`▸` 所在的行"不一定是同一行 —— 这是刻意的：
+选中是操作目标，`▸` 是显示目标。没打开任何窗口时，`▸` 跟随高亮行。
+
+**13. `Ctrl+Tab` 的切换顺序为什么和打开顺序不一样**
+`Ctrl+Tab` / `Ctrl+Shift+Tab` 按**左侧列表的顺序**循环（也就是 `bots_config.json` 里
+机器人的排列顺序），而不是"你点开窗口的先后顺序"。这样顺序稳定、可预期：
+列表里第 2 个机器人永远在第 1 个之后。
+
+**14. 怎么让某个机器人固定用某种分屏**
+三个地方都能设，效果一样（都写 `pane/layout/<bot_id>`）：
+
+| 位置 | 适合什么时候用 |
+| --- | --- |
+| **新建/编辑 Bot 对话框 → 「布局模板」下拉** | 一开始就定好（推荐，N4 新增） |
+| 「视图 → 分屏布局」/ 控制条「布局 ▾」/ 日志区右键「布局」 | 用着用着临时换 |
+| 左栏右键 → 「分屏布局」 | 不想先打开窗口时 |
+
+选 `自动` 会删掉该机器人的布局记忆，回到"按程序数量决定"的默认规则。
+注意布局是**本机偏好**：换机器导入同一份 `bots_config.json` 时布局不会跟着走
+（这是刻意的 —— 别人的屏幕尺寸和习惯不一定适合你）。
+
+---
+
+### 深色模式下日志文字是黑的？
+
+已在 N2.10 修复。原因是日志区此前**只把颜色设进控件调色板**，样式表里只有边框 ——
+而该控件已经被 `setStyleSheet` 过，Qt 在某些情况下会优先用样式表里的默认色，
+文字就回退成系统默认黑。
+
+现在 `apply_log_palette()` 把 `background-color` / `color` / `selection-*`
+**同时**写进样式表与调色板（连 `viewport()` 的调色板一起设），两条路指向同一个
+明确颜色，无论 Qt 走哪条都不会再出现黑字。自检项 `[12.5]` 与
+`tools\check_log_pane.py` 都会断言这一点。
+
+### 切换日志区布局后日志内容没了？
+
+已在 N2.10 修复。原因：切换布局会重建整棵窗格树（`self._views = {}` +
+`deleteLater()`），而**日志文本是存在 `QPlainTextEdit` 里的** —— 控件一销毁
+文本就跟着没了；`_pending_logs` 只缓存"当时没有对应窗格的行"，帮不上忙。
+
+现在 `_rebuild_panes()` 会：
+
+1. 重建前用 `_capture_log_texts()` 抓一份 `{程序: (文本, 行数)}` 快照；
+2. 建好新窗格后用 `_restore_log_texts()` 灌回去（`setPlainText` + 恢复行数计数 +
+   滚到底部）。
+
+自检项 `[12.y]` 会依次切到 `v / h / single / tabs` 四种布局并断言标记行仍在。
+
+### 窗格上的「启动/停止/重启」到底作用在哪些程序？
+
+**只作用于该窗格当前显示的那一个程序**（标题栏写的是哪个程序，就操作哪个）。
+
+- 标题显示「Ollama 服务（副程序）」→ 三个按钮只对 Ollama 服务生效；
+- 要操作**全部程序**：用**窗格空白处右键**菜单（菜单项会明确写着"（全部程序）"），
+  或用顶部控制条的「启动全部 / 停止全部 / 重启全部」，或用工具栏的
+  「启动全部 / 停止全部」（整个机器人）。
+
+> 这里修过一个很危险的 bug：窗格按钮曾经遍历窗格内**所有**程序，
+> 于是"点某个副程序的停止 → 整个实例的程序全被停掉"。
+> 现在 `PaneWidget._emit_action()` 只发一个 key（`current_key()`），
+> `tools\check_pane_scope.py` 会断言"函数里不允许出现任何循环"。
+
+### 「重启」在需要强制停止时没能重新启动？
+
+已修复。两处根因都在 `app/process_manager.py`：
+
+1. `restart()` 先设 `entry.restart_pending = True`，紧接着调用的 `stop()`
+   **无条件**把它清成 False —— 于是 `_on_finished` 把这次停止当成普通停止，
+   重启永远不会发生。现在 `stop()` 有 `keep_restart_pending` 参数，
+   `restart()` 传 True（"这次停止是重启的第一步"）。
+2. Windows 上停止用的是 `taskkill` **子进程**，它自己也会触发一次 `finished`。
+   在那一刻就重启会与真进程的退出竞争。现在 `_on_finished` 会先看真进程是否还在跑，
+   在跑就先返回、等它真正退出（重启由 `QTimer.singleShot(300, ...)` 触发）。
+
+验证手段：
+
+```bat
+python tools\check_restart_flow.py     :: 静态断言（12 项）
+python tools\check_restart_force.py    :: 真实进程跑一遍：启动 → 强制停止 → 自动重启 → PID 必须变
+python tools\check_tool_api_usage.py   :: 核对测试脚本调用的成员是否真的存在
+```
+
+> `check_restart_force.py` 需要在装有 PyQt6 的机器上跑（它会真的起一个
+> `python -c "..." time.sleep(120)` 进程，只把 `_taskkill_sync` 打成桩）。
+
+## 六、项目结构
+
+```
+QQBot启动管理器/
+├── main.py                      # 入口：QApplication、配置定位、异常钩子、外观初始化、
+│                                #   --config / --theme / --remember-theme / --theme-debug /
+│                                #   --nav-debug / --doctor / --selftest
+├── app/
+│   ├── __init__.py
+│   ├── config.py                # 配置模型与 bots_config.json 读写（原子写、损坏备份、
+│   │                            #   [LATEST_JAR] 占位符、via_shell、引号感知的命令行拆分）
+│   ├── layout.py                # 分屏布局模型：PaneNode 树、6 种模板、程序对账、JSON 互转
+│   ├── process_manager.py       # QProcess 封装：启动/停止进程树、UTF-8→GBK 日志解码与转发
+│   └── ui/
+│       ├── __init__.py
+│       ├── theme.py             # 外观令牌：模式解析（system→light/dark）、深浅调色板、
+│       │                        #   各控件样式表、日志区控件调色板（颜色唯一出处）
+│       ├── main_window.py       # 主窗口：工具栏、左侧竖栏导航、实例区、布局/外观菜单、QSettings
+│       ├── bot_tab.py           # 单个 Bot 的实例区：递归窗格树（PaneWidget）+ 布局切换
+│       ├── program_widget.py    # 只读日志窗口：append_log()、主题自适应（控件调色板）
+│       ├── edit_bot_dialog.py   # 新建/编辑 Bot 的对话框（程序可动态增删）
+│       └── bot_list_dialog.py   # 「查看已有 bot」对话框（状态列表 + 批量操作）
+├── tools/
+│   ├── check_names.py           # 静态检查：未定义全局名（能抓出忘 import 这类运行时才炸的错）
+│   ├── check_module_attrs.py    # 静态检查：跨模块属性名拼错
+│   └── diagnostics/             # 只读诊断脚本 + README（颜色 dump、菜单栏状态、导航时序…）
+├── scripts/
+│   └── start_hydrant.bat        # 需要管理员权限的程序示例（runas 提权启动脚本）
+├── bots_config.json             # 机器人配置（首次运行自动生成）
+├── requirements.txt             # PyQt6>=6.6.0
+└── README.md
+```
+
+大致的依赖方向（避免循环导入）：
+
+```
+                          ┌────────────────────┐
+                          │  app.ui.theme      │  颜色/样式的唯一出处
+                          └─────────┬──────────┘
+                                    │ 被所有 UI 模块引用（单向，无环）
+main.py ──> app.ui.main_window ──> app.ui.bot_tab ──> app.ui.program_widget
+     │            │    │                │                    │
+     │            │    └──> app.ui.bot_list_dialog            │
+     │            └───────> app.ui.edit_bot_dialog            │
+     │                                 ├──> app.layout        │
+     └──> app.config <─────────────────┴──> app.process_manager
+```
+
+> `app.ui.theme` 只依赖 PyQt6，不 import 项目内其它模块——所以任何 UI 文件都可以安全引用它。
+>
+> 提交/改动前跑这几条（不开窗口也能跑）：
+> ```bat
+> python -m py_compile main.py app\*.py app\ui\*.py tools\*.py   :: 语法
+> python tools\check_names.py                                     :: 未定义名字（含忘 import）
+> python tools\check_module_attrs.py                              :: 跨模块属性名
+> python main.py --doctor                                         :: 逐个导入所有模块
+> ```
+>
+> 单独自检某个模块（不需要开窗口，`theme.py` 连 QApplication 都不需要）：
+> ```bat
+> python app\ui\theme.py        :: 外观令牌：模式规范化 / 状态色 / 三种样式表 / 深浅调色板
+> python app\ui\bot_tab.py      :: 窗格树：单窗格/上下/左右/嵌套/标签、日志分发、焦点跳转
+> set QT_QPA_PLATFORM=offscreen
+> python main.py --selftest    :: 环境与配置摘要（含当前外观与窗口亮度）
+> ```
+> 带界面的完整自检：`python main.py` 后按需点几下；12 组自动化断言在
+> `app/ui/main_window.py` 的 `_selftest()` 里，可用
+> `python -c "import app.ui.main_window as m; m._selftest()"` 触发。
+> 其中外观相关断言**量的是颜色**（调色板亮度、控件调色板、菜单栏文字亮度），
+> 而不是"意图" —— 这是几轮踩坑后定下的规矩：断言输入必须与真实来源一致。
+
+---
+
+## 七、许可与免责
+
+本项目仅用于本机管理你自己部署的机器人程序，不包含任何 QQ 协议实现。
+使用前请自行确认所管理的程序与其服务条款、以及所在地区的相关法规要求。

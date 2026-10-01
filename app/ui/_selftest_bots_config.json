@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "shell": "cmd.exe",
+  "start_interval": 1.0,
+  "stop_timeout": 10.0,
+  "log_max_lines": 2000,
+  "bots": [
+    {
+      "id": "bot_5a61813a",
+      "name": "示例机器人",
+      "qq": "123456789",
+      "working_dir": "bots/example",
+      "enabled": true,
+      "auto_start": false,
+      "description": "默认示例配置，可直接在界面上修改或删除。",
+      "programs": [
+        {
+          "id": "prog_e86e6513",
+          "name": "主程序",
+          "role": "primary",
+          "cwd": "bots/example",
+          "command": "java -jar {jar}",
+          "env": {
+            "JAVA_TOOL_OPTIONS": "-Dfile.encoding=UTF-8"
+          },
+          "delay": 0.0,
+          "auto_latest_jar": true,
+          "args": [],
+          "enabled": true,
+          "description": "示例主程序：自动使用工作目录中修改时间最新的 jar 包启动。",
+          "via_shell": false
+        },
+        {
+          "id": "prog_0e0c15dc",
+          "name": "副程序",
+          "role": "secondary",
+          "cwd": "bots/example",
+          "command": "python plugin_host.py --port 8080",
+          "env": {
+            "PYTHONIOENCODING": "utf-8"
+          },
+          "delay": 5.0,
+          "auto_latest_jar": false,
+          "args": [],
+          "enabled": true,
+          "description": "示例副程序：在主程序启动 5 秒后启动。",
+          "via_shell": false
+        }
+      ]
+    }
+  ]
+}
