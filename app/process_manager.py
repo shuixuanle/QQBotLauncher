@@ -1058,19 +1058,25 @@ class ProcessManager(QObject):
     # 批量停止 / 清理
     # ------------------------------------------------------------------
 
-    def stop_all(self, timeout_ms: int = 3000, wait: bool = True) -> int:
+    def stop_all(self, timeout_ms: int = 3000, wait: bool = True,
+                 force: bool = False) -> int:
         """停止所有托管进程（用于关闭窗口与程序退出）。
 
         返回发出停止请求的数量。
 
-        wait 为真时会阻塞等待（含强制结束），只在窗口关闭、程序退出时使用，
-        避免残留孤儿进程。
+        wait
+            为真时阻塞等待（含强制结束），只在窗口关闭、程序退出时使用，
+            避免残留孤儿进程。
+        force
+            为真时**跳过优雅停止**，直接 `taskkill /T /F` 并在 1.5 秒后就地兜底。
+            用于"关闭管理器时立刻收摊"：有些程序（.NET / 控制台宿主）根本不响应
+            优雅关闭请求，等它只会白等，还会让关窗卡住好几秒。
         """
         self._shutting_down = True
         targets = self.running_keys()
         for key in targets:
             try:
-                self.stop(key, timeout_ms=timeout_ms, force=False)
+                self.stop(key, timeout_ms=timeout_ms, force=force)
             except Exception:  # 保证批量停止不会中途抛出
                 pass
 

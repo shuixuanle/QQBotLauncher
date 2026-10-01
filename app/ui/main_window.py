@@ -133,6 +133,8 @@ SETTINGS_SPLIT_PREFIX = "split/"
 SETTINGS_START_INTERVAL = "start/interval"
 SETTINGS_STOP_TIMEOUT = "process/stop_timeout"
 SETTINGS_LOG_LINES = "log/max_lines"
+#: 关闭管理器时是否**强制**停止所有程序（跳过确认、不等优雅退出）
+SETTINGS_FORCE_STOP_ON_CLOSE = "process/force_stop_on_close"
 
 DEFAULT_START_INTERVAL = 1.0
 DEFAULT_LOG_LINES = 5000
@@ -463,6 +465,7 @@ class RuntimeSettingsDialog(QDialog):
         log_max_lines: int = DEFAULT_LOG_LINES,
         manager: Optional[ProcessManager] = None,
         theme_mode: str = "",
+        force_stop_on_close: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("运行参数")
@@ -518,6 +521,16 @@ class RuntimeSettingsDialog(QDialog):
         self.show_manager_log_box.setChecked(self._manager_log_enabled())
         self.show_manager_log_box.setToolTip("例如：启动命令、PID、taskkill 结果")
         layout.addWidget(self.show_manager_log_box)
+
+        # 关闭时强制收摊（真机需求）：跳过确认、直接 taskkill /T /F
+        self.force_stop_box = QCheckBox("关闭管理器时强制停止所有程序（不询问）", self)
+        self.force_stop_box.setChecked(bool(force_stop_on_close))
+        self.force_stop_box.setToolTip(
+            "勾选后：关窗时不再弹「仍有 N 个程序在运行」的确认框，"
+            "直接 taskkill /T /F 结束整棵进程树（跳过优雅等待，关窗更快）。\n"
+            "不勾选：先弹确认框，并在停止超时内等待程序自行退出。"
+        )
+        layout.addWidget(self.force_stop_box)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
@@ -583,6 +596,7 @@ class RuntimeSettingsDialog(QDialog):
             "stop_timeout": float(self.timeout_spin.value()),
             "log_max_lines": int(self.lines_spin.value()),
             "show_manager_log": bool(self.show_manager_log_box.isChecked()),
+            "force_stop_on_close": bool(self.force_stop_box.isChecked()),
             "theme": self.theme_mode(),
         }
 
@@ -627,6 +641,8 @@ class MainWindow(QMainWindow):
         self._starting_queue: List[str] = []
         self._start_timer: Optional[QTimer] = None
         self._show_manager_log = True
+        #: 关闭管理器时是否强制停止所有程序（跳过确认 + 不做优雅等待）
+        self._force_stop_on_close = False
         self._closing = False
         #: 最近一次打开的「查看已有 bot」对话框（Phase B）
         self._bot_list_dialog: Optional[object] = None
@@ -739,6 +755,16 @@ class MainWindow(QMainWindow):
         )
         if self.log_max_lines <= 0:
             self.log_max_lines = DEFAULT_LOG_LINES
+        # 注意：注册表里存的是 'true'/'false' 字符串，必须用 settings_bool 解析
+        # （bool('false') 是 True —— 这个坑在 nav/collapsed 上踩过）
+        self._force_stop_on_close = settings_bool(
+            self._settings.value(SETTINGS_FORCE_STOP_ON_CLOSE, False), False
+        )
+        # 菜单项的勾选态跟着设置走（persist=False：刚读出来，不需要再写回）
+        try:
+            self.set_force_stop_on_close(self._force_stop_on_close, persist=False)
+        except (AttributeError, RuntimeError):
+            pass
 
     @property
     def stop_timeout_ms(self) -> int:
@@ -753,6 +779,7 @@ class MainWindow(QMainWindow):
             stop_timeout=self.stop_timeout,
             log_max_lines=self.log_max_lines,
             manager=self.manager,
+            force_stop_on_close=self._force_stop_on_close,
         )
         # R2：把「外观」初值填成当前模式，并让主窗口能立刻应用它
         try:
@@ -768,6 +795,18 @@ class MainWindow(QMainWindow):
         self.stop_timeout = float(values["stop_timeout"])
         self.log_max_lines = int(values["log_max_lines"])
         self._show_manager_log = bool(values["show_manager_log"])
+        self._force_stop_on_close = bool(values.get("force_stop_on_close", False))
+        try:
+            self._settings.setValue(
+                SETTINGS_FORCE_STOP_ON_CLOSE, self._force_stop_on_close
+            )
+            self._settings.sync()
+        except (AttributeError, TypeError):
+            pass
+        self.statusBar().showMessage(
+            "关闭时强制停止：{}".format("开" if self._force_stop_on_close else "关"),
+            4000,
+        )
         # 外观：对话框里选了就按它生效（用户点取消时这里不会走到）
         mode = str(values.get("theme", "") or "").strip()
         if mode:
@@ -890,6 +929,19 @@ class MainWindow(QMainWindow):
         )
         self.action_toggle_bot_tab_bar.triggered.connect(
             self._on_toggle_bot_tab_bar_action
+        )
+
+        self.action_force_stop_on_close = QAction(
+            "关闭时强制停止所有程序", self
+        )
+        self.action_force_stop_on_close.setCheckable(True)
+        self.action_force_stop_on_close.setChecked(False)
+        self.action_force_stop_on_close.setToolTip(
+            "勾选后：关掉管理器窗口时不再询问，直接强制结束所有正在运行的程序\n"
+            "（等价于「运行参数」里的同名开关，两处共享同一个设置）"
+        )
+        self.action_force_stop_on_close.toggled.connect(
+            self._on_force_stop_on_close_toggled
         )
 
         self.action_toggle_nav = QAction("折叠左侧列表", self)
@@ -1029,6 +1081,8 @@ class MainWindow(QMainWindow):
         self._build_theme_actions()
         self.view_menu.addAction(self.action_toggle_bot_tab_bar)
         self.view_menu.addAction(self.action_toggle_nav)
+        self.view_menu.addSeparator()
+        self.view_menu.addAction(self.action_force_stop_on_close)
         self.view_menu.addAction(self.action_settings)
 
         help_menu = menu_bar.addMenu("帮助(&H)")
@@ -1884,6 +1938,33 @@ class MainWindow(QMainWindow):
             action.blockSignals(False)
         self._update_bot_tab_bar_visible()
         return target
+
+    def set_force_stop_on_close(self, enabled: bool, persist: bool = True) -> None:
+        """设置"关闭管理器时强制停止所有程序"（菜单与运行参数两处共用）。"""
+        self._force_stop_on_close = bool(enabled)
+        action = getattr(self, "action_force_stop_on_close", None)
+        if action is not None:
+            action.blockSignals(True)
+            action.setChecked(self._force_stop_on_close)
+            action.blockSignals(False)
+        if persist:
+            try:
+                self._settings.setValue(
+                    SETTINGS_FORCE_STOP_ON_CLOSE, self._force_stop_on_close
+                )
+                self._settings.sync()
+            except (AttributeError, TypeError):
+                pass
+
+    def _on_force_stop_on_close_toggled(self, checked: bool) -> None:
+        """菜单勾选变化 → 记住设置并提示当前状态。"""
+        self.set_force_stop_on_close(checked)
+        self.statusBar().showMessage(
+            "关闭管理器时将{}所有程序".format(
+                "强制停止" if checked else "先询问再停止"
+            ),
+            4000,
+        )
 
     def _on_toggle_bot_tab_bar_action(self, checked: bool) -> None:
         """菜单项触发：按勾选状态显示/隐藏标签栏。"""
@@ -4517,9 +4598,20 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
-        """关闭窗口：确认后停止所有进程并保存界面状态。"""
+        """关闭窗口：停止所有进程并保存界面状态。
+
+        两种收摊方式（由「运行参数 → 关闭管理器时强制停止所有程序」决定）：
+
+        · **不勾选**（默认）：先弹确认框，再按"停止超时"等程序自行退出，
+          超时才 taskkill /T /F。稳妥，但遇到不响应关闭请求的程序（.NET、
+          控制台宿主）会白等好几秒。
+        · **勾选**（真机需求"关闭管理器时自动强制停止所有正在运行的程序"）：
+          **不询问**，直接 `taskkill /T /F` 结束整棵进程树并就地兜底，
+          关窗干净利落；适合"我关管理器就是要它全停"的用法。
+        """
         running = self.manager.running_count
-        if running and not self._closing:
+        force_close = bool(getattr(self, "_force_stop_on_close", False))
+        if running and not self._closing and not force_close:
             answer = QMessageBox.question(
                 self,
                 "退出确认",
@@ -4544,11 +4636,20 @@ class MainWindow(QMainWindow):
         self._close_log("界面状态已保存")
 
         if self.manager.running_count:
-            self.statusBar().showMessage("正在停止所有程序…")
+            if force_close:
+                self.statusBar().showMessage("正在强制停止所有程序…")
+                self._close_log("强制停止模式：跳过确认与优雅等待")
+            else:
+                self.statusBar().showMessage("正在停止所有程序…")
             QApplication.processEvents()
-            self.manager.stop_all(timeout_ms=3000, wait=True)
-            self._close_log("stop_all 返回，仍在运行={}".format(
-                self.manager.running_count))
+            # 强制模式：跳过优雅停止（force=True），超时压到 1.5 秒兜底
+            self.manager.stop_all(
+                timeout_ms=1500 if force_close else 3000,
+                wait=True,
+                force=force_close,
+            )
+            self._close_log("stop_all 返回（force={}），仍在运行={}".format(
+                force_close, self.manager.running_count))
 
         self.manager.cleanup()
         self._close_log("cleanup 完成，准备关闭窗口")
