@@ -170,56 +170,53 @@ class ProgramWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _build_ui(self, show_toolbar: bool) -> None:
+        """构建界面。
+
+        布局（**只有一行头部**，真机反馈"两栏功能重复"后合并）：
+
+            ① 头部/工具栏行：程序名（粗体） 状态 … [按钮组] 行数
+            ② 日志区（占满剩余空间）
+
+        为什么把"标题行"与"工具栏行"并成一行：
+        以前是两行 —— 第一行放 程序名 + 状态 + 行数，第二行放 清空/复制/打开目录/自动滚动。
+        而 PaneWidget（分屏窗格）自己还有一条标题栏（程序名 + 状态 + PID + 启停按钮），
+        于是同一个界面上**同一个程序名与状态出现两次**（截图为证）。
+
+        合并后只有一个行头，把"行数"放到最右、按钮放中间：
+        · 嵌在窗格里时（show_toolbar=False）这一行只剩一个"行数"标签，
+          程序名与状态由窗格标题栏负责，不再重复；
+        · 单独作为大日志窗口时这一行同时承担标题与工具栏。
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # --- 标题行 ---
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(6)
+        # --- 唯一的头部行（标题 + 状态 + 按钮 + 行数）---
+        self.header = QWidget(self)
+        header_row = QHBoxLayout(self.header)
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(6)
 
-        self.title_label = QLabel(self._program_name, self)
+        self.title_label = QLabel(self._program_name, self.header)
         self.title_label.setObjectName("programTitle")
         title_font = self.title_label.font()
         title_font.setBold(True)
         self.title_label.setFont(title_font)
 
-        self.status_label = QLabel("未启动", self)
+        self.status_label = QLabel("未启动", self.header)
         self.status_label.setObjectName("programStatus")
         self.status_label.setToolTip("进程状态")
 
-        self.count_label = QLabel("0 行", self)
+        self.count_label = QLabel("0 行", self.header)
         self.count_label.setObjectName("programCount")
         self.count_label.setToolTip("当前日志行数")
 
-        header.addWidget(self.title_label)
-        header.addWidget(self.status_label)
-        header.addStretch(1)
-        header.addWidget(self.count_label)
-        layout.addLayout(header)
+        header_row.addWidget(self.title_label)
+        header_row.addWidget(self.status_label)
+        header_row.addStretch(1)
 
-        # --- 日志区 ---
-        self.editor = QPlainTextEdit(self)
-        self.editor.setObjectName("programLog")
-        self.editor.setReadOnly(True)
-        self.editor.setUndoRedoEnabled(False)
-        self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.editor.setMaximumBlockCount(self._max_lines)
-        self.editor.setFont(monospace_font(9))
-        self.editor.setPlaceholderText("（暂无日志输出）")
-        self.editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.editor.setMinimumHeight(MIN_EDITOR_HEIGHT)
-        self.editor.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        # 用户滚动时更新"是否贴底"
-        self.editor.verticalScrollBar().valueChanged.connect(self._on_scrolled)
-        layout.addWidget(self.editor, 1)
-
-        # --- 工具栏 ---
-        self.toolbar = QWidget(self)
+        # --- 按钮组（与标题同一行）---
+        self.toolbar = QWidget(self.header)
         toolbar_row = QHBoxLayout(self.toolbar)
         toolbar_row.setContentsMargins(0, 0, 0, 0)
         toolbar_row.setSpacing(6)
@@ -245,11 +242,94 @@ class ProgramWidget(QWidget):
         toolbar_row.addWidget(self.copy_button)
         toolbar_row.addWidget(self.open_dir_button)
         toolbar_row.addWidget(self.auto_scroll_box)
-        toolbar_row.addStretch(1)
 
-        layout.addWidget(self.toolbar)
+        header_row.addWidget(self.toolbar)
+        header_row.addWidget(self.count_label)
+        layout.addWidget(self.header)
+
         self.toolbar.setVisible(bool(show_toolbar))
+        # 嵌在窗格里时标题/状态由窗格标题栏显示，这里隐藏以免重复；
+        # 行数标签始终保留（窗格标题栏没有这个信息）。
+        self.title_label.setVisible(bool(show_toolbar))
+        self.status_label.setVisible(bool(show_toolbar))
+        # 若这一行最终什么都不显示（行数被窗格搬走、按钮组也隐藏），
+        # 就连同它一起收起来 —— 否则会留一条空白带占高度。
+        self._sync_header_visible()
+
+        # --- 日志区 ---
+        self.editor = QPlainTextEdit(self)
+        self.editor.setObjectName("programLog")
+        self.editor.setReadOnly(True)
+        self.editor.setUndoRedoEnabled(False)
+        self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.editor.setMaximumBlockCount(self._max_lines)
+        self.editor.setFont(monospace_font(9))
+        self.editor.setPlaceholderText("（暂无日志输出）")
+        self.editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.editor.setMinimumHeight(MIN_EDITOR_HEIGHT)
+        self.editor.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        # 用户滚动时更新"是否贴底"
+        self.editor.verticalScrollBar().valueChanged.connect(self._on_scrolled)
+        layout.addWidget(self.editor, 1)
+
         self._update_open_dir_state()
+
+    def _sync_header_visible(self) -> None:
+        """头部行里没有任何可见控件时，把整行也隐藏掉。
+
+        场景：嵌在窗格里（``show_toolbar=False``）时，标题与状态隐藏、
+        "行数"标签被窗格标题栏接管（``take_count_label`` 把它 setParent(None)）
+        —— 此时这一行已经空了，但 QWidget + QVBoxLayout 仍会保留一点高度，
+        屏幕上就是一条空白带。这里按需收起。
+        """
+        header = getattr(self, "header", None)
+        if header is None:
+            return
+        try:
+            children = (
+                self.title_label,
+                self.status_label,
+                getattr(self, "toolbar", None),
+                getattr(self, "count_label", None),
+            )
+            any_visible = any(
+                child is not None and child.isVisible() and child.parent() is not None
+                for child in children
+            )
+            header.setVisible(any_visible)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def count_text(self) -> str:
+        """当前"行数"文字的对外只读访问（窗格需要把它显示到自己的标题栏用）。"""
+        try:
+            return self.count_label.text()
+        except (AttributeError, RuntimeError):
+            return ""
+
+    def take_count_label(self) -> Optional[QLabel]:
+        """把"行数"标签的**所有权**交给调用方（窗格把它并进自己的标题栏）。
+
+        真机反馈："这两栏功能上是有重复的，建议合并" —— 窗格标题栏已经有
+        程序名/状态/PID/启停按钮，唯一缺的就是"行数"，所以把它搬过去，
+        让窗格标题栏成为**唯一**的一行；搬走之后这里不再显示它。
+
+        标签对象本身保留（``self.count_label`` 仍然有效，``_update_count_label()``
+        照旧更新文字），只是换了父控件；换父后样式表需要重新套一次（见下）。
+        """
+        label = getattr(self, "count_label", None)
+        if label is None:
+            return None
+        try:
+            label.setParent(None)
+            self._apply_style()          # 换父后重新上色
+            self._sync_header_visible()  # 行数没了 → 这一行可能整行收起
+        except (RuntimeError, AttributeError):
+            return None
+        return label
 
     def _apply_style(self) -> None:
         """应用样式：日志区与提示文字都跟随当前主题（深色 / 浅色）。

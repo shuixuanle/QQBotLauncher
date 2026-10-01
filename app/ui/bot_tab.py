@@ -293,6 +293,8 @@ class PaneWidget(QWidget):
         row = QHBoxLayout(bar)
         row.setContentsMargins(4, 2, 4, 2)
         row.setSpacing(6)
+        # 记住布局：_adopt_count_label 要把日志视图的"行数"标签插进来
+        self._title_bar_layout = row
 
         self.title_label = QLabel("（空窗格）", bar)
         self.title_label.setObjectName("paneTitle")
@@ -305,6 +307,12 @@ class PaneWidget(QWidget):
 
         self.pid_label = QLabel("", bar)
         self.pid_label.setObjectName("panePid")
+
+        # 行数标签：由当前显示的程序窗格"搬"进来（见 _adopt_count_label），
+        # 这样窗格标题栏就是**唯一**的一行（真机反馈过"两栏功能重复"）。
+        self.count_label = QLabel("", bar)
+        self.count_label.setObjectName("paneCount")
+        self.count_label.setToolTip("当前日志行数")
 
         self.start_button = QPushButton("启动", bar)
         self.start_button.setToolTip(
@@ -334,6 +342,7 @@ class PaneWidget(QWidget):
         row.addWidget(self.title_label)
         row.addWidget(self.status_label)
         row.addWidget(self.pid_label)
+        row.addWidget(self.count_label)
         row.addStretch(1)
         for button in (self.start_button, self.stop_button, self.restart_button,
                        self.clear_button):
@@ -377,10 +386,42 @@ class PaneWidget(QWidget):
         )
         view.contextMenuRequested.connect(self._on_view_context_menu)
         view.openDirectoryRequested.connect(self.openDirectoryRequested.emit)
+        # 把程序窗格的"行数"标签并进本窗格标题栏（唯一一行）
+        self._adopt_count_label(view)
         # 点击日志区 = 把焦点切到本窗格
         view.editor.installEventFilter(self)
         self._views[key] = view
         return view
+
+    def _adopt_count_label(self, view) -> None:
+        """把某个日志视图的"行数"标签搬进本窗格标题栏。
+
+        真机反馈："图片中框住的这两栏功能上是有重复的，建议合并" ——
+        窗格标题栏已有 程序名/状态/PID/启停按钮，只缺行数；而日志视图自己也有一行
+        （程序名 + 状态 + 行数）。合并方式：
+
+          · 日志视图的那一行在窗格里只剩"行数"（程序名/状态已隐藏，见 ProgramWidget）；
+          · 行数标签**搬进窗格标题栏**，于是屏幕上只剩一行。
+
+        标签对象仍归日志视图所有（``view.count_label`` 照旧可用、照旧被
+        ``_update_count_label()`` 更新），只是换了父控件。
+        """
+        try:
+            label = view.take_count_label()
+        except (AttributeError, RuntimeError):
+            label = None
+        if label is None:
+            return
+        layout = getattr(self, "_title_bar_layout", None)
+        if layout is not None:
+            # 插到占位标签原来的位置，再把占位标签摘掉（避免布局里留个空项）
+            index = layout.indexOf(self.count_label)
+            if index >= 0:
+                layout.insertWidget(index, label)
+                layout.removeWidget(self.count_label)
+                self.count_label.setParent(None)
+        self.count_label = label
+        label.show()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802 (Qt 命名)
         """点击日志编辑器时把焦点切到本窗格。"""
