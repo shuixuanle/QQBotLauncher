@@ -850,5 +850,8 @@ main.py ──> app.ui.main_window ──> app.ui.bot_tab ──> app.ui.program
 
 ## 七、许可与免责
 
+本项目以 **MIT 许可证**发布，见 [LICENSE](LICENSE)。
+（想把它上传到自己的 GitHub：见 [上传到GitHub.md](上传到GitHub.md)。）
+
 本项目仅用于本机管理你自己部署的机器人程序，不包含任何 QQ 协议实现。
 使用前请自行确认所管理的程序与其服务条款、以及所在地区的相关法规要求。
