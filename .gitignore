@@ -92,3 +92,11 @@ tools/diagnostics/_nav_trace.py
 tools/diagnostics/_qss_parse_check.py
 tools/diagnostics/_selector_probe.py
 tools/diagnostics/启动诊断.vbs
+
+# ---------------------------------------------------------------------------
+# 只留给自己看的文档（不进仓库）
+#   · 上传/推送流程、PR 审查、仓库改名等维护动作 —— 对使用者没用，
+#     对贡献者也不适用（他们走 Fork + PR，不需要推送权限）
+# ---------------------------------------------------------------------------
+上传到GitHub.md
+仓库维护笔记.md
