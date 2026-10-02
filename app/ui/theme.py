@@ -96,7 +96,10 @@ DARK_DISABLED_TEXT = "#7a7a7a"
 #: 浅色界面用的基础色（N2.4：柔和黄灰，不用纯白 —— 纯白刺眼；
 #: 也不用 Windows 标准板的 #ced0d4（发灰发脏））
 LIGHT_WINDOW = "#f0efe9"
-LIGHT_BASE = "#f7f6f1"
+#: 列表 / 输入区底色。真机需求原话："把左侧 bot 实例部分的颜色改成淡灰 f4f4f4" ——
+#: 比窗体（#f0efe9）略亮一点点，于是左侧列表能"看出来是一块列表"；
+#: 以前浅色下这里读的是系统调色板的 Base（纯白），根本不受我们控制。
+LIGHT_BASE = "#f4f4f4"
 LIGHT_ALTERNATE = "#e8e6dd"
 LIGHT_TEXT = "#1f1f1f"
 LIGHT_BUTTON = "#eae8e0"
@@ -167,15 +170,136 @@ ANSI_DARK_MIN_LUMA = 0.10
 # 那些颜色是成套推导出来的（见 nav_palette / chrome_qss），单改一个只会更花。
 # ---------------------------------------------------------------------------
 
-SETTINGS_CUSTOM_LIGHT_ANSI = "colors/light_ansi"
-SETTINGS_CUSTOM_DARK_ANSI = "colors/dark_ansi"
-SETTINGS_CUSTOM_LIGHT_BG = "colors/light_bg"
-SETTINGS_CUSTOM_LIGHT_FG = "colors/light_fg"
-SETTINGS_CUSTOM_DARK_BG = "colors/dark_bg"
-SETTINGS_CUSTOM_DARK_FG = "colors/dark_fg"
+SETTINGS_CUSTOM_PREFIX = "colors/"
 
 #: 运行期的覆盖值（键同上，值是颜色字符串 / 16 色元组）
 _CUSTOM: Dict[str, object] = {}
+
+# ---------------------------------------------------------------------------
+# 界面颜色角色：整个界面可自定义的基础
+#
+# 为什么要"角色"：以前颜色散在十几个常量与函数里（LIGHT_* / DARK_* / NAV_* / LOG_*…），
+# 想改一个"左侧列表底色"得先查它到底由谁决定 —— 真机需求就是"界面各部分都要能改"。
+# 现在收敛成一张表：每个角色深浅各一个内置值，自定义色板按角色覆盖，
+# 而所有 QSS / 调色板都从这张表取色。
+# ---------------------------------------------------------------------------
+
+#: 角色名（也是 QSettings 键的后缀：`colors/light_base` …）
+UI_ROLES: Tuple[str, ...] = (
+    "window",          # 窗体 / 工具栏 / 菜单栏底色
+    "base",            # 列表、输入区底色（左侧机器人列表就是它）
+    "alternate",       # 悬停 / 交替行
+    "text",            # 主文字
+    "muted",           # 次要文字（提示行、行数、状态栏次要信息）
+    "button",          # 按钮底色
+    "border",          # 边框 / 分隔线
+    "highlight",       # 强调色（进度、链接、日志选中）
+    "highlight_text",  # 强调色上的文字
+    "selection_bg",    # 列表选中行底色
+    "selection_text",  # 列表选中行文字
+    "disabled",        # 禁用态文字
+    "focus_border",    # 窗格焦点边框
+    "bg",              # 日志区底色
+    "fg",              # 日志区文字色
+)
+
+#: 角色中文名（工作台、README、报错信息共用一份）
+ROLE_LABELS: Dict[str, str] = {
+    "window": "窗体 / 工具栏",
+    "base": "列表 / 输入区",
+    "alternate": "悬停 / 交替行",
+    "text": "主文字",
+    "muted": "次要文字",
+    "button": "按钮底色",
+    "border": "边框 / 分隔线",
+    "highlight": "强调色",
+    "highlight_text": "强调色上的文字",
+    "selection_bg": "列表选中行",
+    "selection_text": "选中行文字",
+    "disabled": "禁用文字",
+    "focus_border": "窗格焦点边框",
+    "bg": "日志区底色",
+    "fg": "日志区文字",
+}
+
+#: 浅色内置值。说明几处容易踩的点：
+#:   · `window` 与 `bg` **故意同色**（#f0efe9）：日志区与窗体连成一片，
+#:     不在浅色界面里"挖"出一块刺眼的白方块（真机确认过要保留）；
+#:   · `base` 比窗体略亮一点点（#f4f4f4）：左侧列表要能"看出来是一块列表"，
+#:     真机需求原话是"把左侧 bot 实例部分的颜色改成淡灰 f4f4f4"；
+#:   · `selection_bg` / `selection_text` 是**列表内**的选中行（浅蓝底深字），
+#:     与 `highlight`（按钮/链接那种强调色）分开，改一个不会连带改另一个。
+#:
+#: 表里的值**全部引用上面的常量** —— 颜色依然只有一个出处，
+#: 这张表只负责"哪个部位用哪个颜色"。
+LIGHT_ROLES: Dict[str, str] = {
+    "window": LIGHT_WINDOW,
+    "base": LIGHT_BASE,
+    "alternate": LIGHT_ALTERNATE,
+    "text": LIGHT_TEXT,
+    "muted": MUTED_LIGHT,
+    "button": LIGHT_BUTTON,
+    "border": LIGHT_BORDER,
+    "highlight": LIGHT_HIGHLIGHT,
+    "highlight_text": LIGHT_HIGHLIGHT_TEXT,
+    "selection_bg": NAV_LIGHT_SELECTED_BG,
+    "selection_text": NAV_LIGHT_SELECTED_TEXT,
+    "disabled": LIGHT_DISABLED_TEXT,
+    "focus_border": FOCUS_BORDER_LIGHT,
+    "bg": LOG_LIGHT_BG,
+    "fg": LOG_LIGHT_TEXT,
+}
+
+DARK_ROLES: Dict[str, str] = {
+    "window": DARK_WINDOW,
+    "base": DARK_BASE,
+    "alternate": DARK_ALTERNATE,
+    "text": DARK_TEXT,
+    "muted": MUTED_DARK,
+    "button": DARK_BUTTON,
+    "border": DARK_BORDER,
+    "highlight": DARK_HIGHLIGHT,
+    "highlight_text": DARK_HIGHLIGHT_TEXT,
+    "selection_bg": DARK_HIGHLIGHT,
+    "selection_text": DARK_HIGHLIGHT_TEXT,
+    "disabled": DARK_DISABLED_TEXT,
+    "focus_border": FOCUS_BORDER_DARK,
+    "bg": LOG_DARK_BG,
+    "fg": LOG_DARK_TEXT,
+}
+
+#: 深浅 → 角色表
+ROLE_TABLES: Dict[bool, Dict[str, str]] = {False: LIGHT_ROLES, True: DARK_ROLES}
+
+
+def builtin_role_color(role: str, dark: bool) -> str:
+    """内置的角色颜色（**不受**自定义影响）。"""
+    table = ROLE_TABLES.get(bool(dark)) or LIGHT_ROLES
+    return table.get(str(role)) or table.get("text", "#000000")
+
+
+def role_color(role: str, dark: Optional[bool] = None,
+               widget: Optional[QWidget] = None) -> str:
+    """取某个角色的颜色：**自定义优先**，其次内置。
+
+    不传 `dark` 就按 `is_dark(widget)` 判断（跟随系统 / 显式模式都由它决定）。
+    角色名不认识时退回主文字色 —— 宁可颜色不对，也不要让 QSS 里出现空值。
+    """
+    if dark is None:
+        dark = is_dark(widget)
+    key = "{}_{}".format("dark" if dark else "light", role)
+    value = _CUSTOM.get(key)
+    if isinstance(value, str) and value:
+        return value
+    return builtin_role_color(role, bool(dark))
+
+
+def resolve_roles(dark: Optional[bool] = None,
+                  widget: Optional[QWidget] = None) -> Dict[str, str]:
+    """一次性取出当前生效的全部角色颜色（工作台、自检、检查器都用它）。"""
+    if dark is None:
+        dark = is_dark(widget)
+    return {role: role_color(role, dark=dark) for role in UI_ROLES}
 
 #: xterm 256 色里 6×6×6 色立方用的六档分量
 ANSI_CUBE_LEVELS: Tuple[int, ...] = (0, 95, 135, 175, 215, 255)
@@ -184,12 +308,11 @@ ANSI_CUBE_LEVELS: Tuple[int, ...] = (0, 95, 135, 175, 215, 255)
 HIGHLIGHTED_TEXT = "#ffffff"
 DISABLED_LOG_TEXT = "#9a9a9a"
 
-#: 浅色左栏兜底（与 main_window 原来的硬编码一致，保证观感不变）
-NAV_LIGHT_BORDER = "#dcdcdc"
-NAV_LIGHT_BG = "#ffffff"
+#: 左侧列表**选中行**（浅色）：浅蓝底 + 深字。
+#: 它和 `highlight`（按钮/链接那种强调色）是两回事 —— 分开成两个角色，
+#: 改一个不会连带把另一个也改掉。
 NAV_LIGHT_SELECTED_BG = "#cfe3f7"
 NAV_LIGHT_SELECTED_TEXT = "#1a1a1a"
-NAV_LIGHT_HOVER_BG = "#eaf3fc"
 
 #: 次要文字色
 MUTED_DARK = "#9a9a9a"
@@ -404,15 +527,15 @@ def startup_mode(settings: object = None) -> str:
 def _build_dark_palette(base: Optional[QPalette] = None) -> QPalette:
     """构造一套深色调色板（把 Windows 浅色调色板换成深灰阶）。"""
     palette = QPalette(base) if base is not None else QPalette()
-    window = QColor(DARK_WINDOW)
-    base_color = QColor(DARK_BASE)
-    alternate = QColor(DARK_ALTERNATE)
-    text = QColor(DARK_TEXT)
-    button = QColor(DARK_BUTTON)
-    border = QColor(DARK_BORDER)
-    highlight = QColor(DARK_HIGHLIGHT)
-    highlighted_text = QColor(DARK_HIGHLIGHT_TEXT)
-    disabled = QColor(DARK_DISABLED_TEXT)
+    window = QColor(role_color("window", dark=True))
+    base_color = QColor(role_color("base", dark=True))
+    alternate = QColor(role_color("alternate", dark=True))
+    text = QColor(role_color("text", dark=True))
+    button = QColor(role_color("button", dark=True))
+    border = QColor(role_color("border", dark=True))
+    highlight = QColor(role_color("highlight", dark=True))
+    highlighted_text = QColor(role_color("highlight_text", dark=True))
+    disabled = QColor(role_color("disabled", dark=True))
 
     for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
         palette.setColor(group, QPalette.ColorRole.Window, window)
@@ -497,15 +620,15 @@ def _build_light_palette(base: Optional[QPalette] = None) -> QPalette:
     这里和白/黑两套色都写死，行为可预测。
     """
     palette = QPalette(base) if base is not None else QPalette()
-    window = QColor(LIGHT_WINDOW)
-    base_color = QColor(LIGHT_BASE)
-    alternate = QColor(LIGHT_ALTERNATE)
-    text = QColor(LIGHT_TEXT)
-    button = QColor(LIGHT_BUTTON)
-    border = QColor(LIGHT_BORDER)
-    highlight = QColor(LIGHT_HIGHLIGHT)
-    highlighted_text = QColor(LIGHT_HIGHLIGHT_TEXT)
-    disabled = QColor(LIGHT_DISABLED_TEXT)
+    window = QColor(role_color("window", dark=False))
+    base_color = QColor(role_color("base", dark=False))
+    alternate = QColor(role_color("alternate", dark=False))
+    text = QColor(role_color("text", dark=False))
+    button = QColor(role_color("button", dark=False))
+    border = QColor(role_color("border", dark=False))
+    highlight = QColor(role_color("highlight", dark=False))
+    highlighted_text = QColor(role_color("highlight_text", dark=False))
+    disabled = QColor(role_color("disabled", dark=False))
 
     for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
         palette.setColor(group, QPalette.ColorRole.Window, window)
@@ -648,8 +771,8 @@ def _refresh_widget_styles(app: QApplication) -> None:
 # ---------------------------------------------------------------------------
 
 def muted_text_color(widget: Optional[QWidget] = None) -> str:
-    """次要文字颜色（跟随主题）。"""
-    return MUTED_DARK if is_dark(widget) else MUTED_LIGHT
+    """次要文字颜色（跟随主题，可自定义）。"""
+    return role_color("muted", widget=widget)
 
 
 def status_color(key: object, default: str = COLOR_IDLE) -> str:
@@ -724,45 +847,52 @@ def custom_colors() -> Dict[str, object]:
     return dict(_CUSTOM)
 
 
-def set_custom_colors(
-    light_ansi: object = None,
-    dark_ansi: object = None,
-    light_bg: str = "",
-    light_fg: str = "",
-    dark_bg: str = "",
-    dark_fg: str = "",
-) -> None:
-    """设置运行期的自定义色板（工作台用它做即时预览）。
+def color_setting_key(name: str) -> str:
+    """自定义颜色的设置键：`light_base` → `colors/light_base`。"""
+    return SETTINGS_CUSTOM_PREFIX + str(name)
 
-    传 None 表示"这一项不动"；传**空的**字符串/列表/元组表示"清掉这一项、回到内置"。
-    颜色不合法的项会被忽略（宁可保持原样，也不要把界面弄坏）。
+
+def custom_color_keys() -> Tuple[str, ...]:
+    """所有可以被自定义的颜色键：`<模式>_<角色>` + `<模式>_ansi`。"""
+    keys: List[str] = []
+    for mode in ("light", "dark"):
+        for role in UI_ROLES:
+            keys.append("{}_{}".format(mode, role))
+        keys.append("{}_ansi".format(mode))
+    return tuple(keys)
+
+
+def set_custom_colors(**values) -> None:
+    """设置运行期的自定义颜色（工作台用它做即时预览）。
+
+    键的写法：`<light|dark>_<角色>`（角色见 :data:`UI_ROLES`），外加 `..._ansi`。
+    · 传 None → 这一项不动；
+    · 传空字符串 / 空列表 → **清掉**这一项，回到内置；
+    · 颜色不合法 → 忽略（宁可保持原样，也不要把界面弄坏）。
     """
-    incoming = {
-        "light_ansi": light_ansi,
-        "dark_ansi": dark_ansi,
-        "light_bg": light_bg,
-        "light_fg": light_fg,
-        "dark_bg": dark_bg,
-        "dark_fg": dark_fg,
-    }
-    for key, value in incoming.items():
-        if value is None:
+    for key, value in (values or {}).items():
+        name = str(key)
+        mode = name.split("_", 1)[0]
+        if mode not in ("light", "dark") or value is None:
             continue
-        if key.endswith("_ansi"):
+        if name.endswith("_ansi"):
             if isinstance(value, (str, list, tuple)) and len(value) == 0:
-                _CUSTOM.pop(key, None)          # 显式清空 → 回到内置色板
+                _CUSTOM.pop(name, None)          # 显式清空 → 回到内置色板
                 continue
             parsed = parse_palette_text(value)
             if parsed is None:
                 continue
-            _CUSTOM[key] = parsed
+            _CUSTOM[name] = parsed
+            continue
+        role = name[len(mode) + 1:]
+        if role not in UI_ROLES:
             continue
         text = str(value).strip()
         if not text:
-            _CUSTOM.pop(key, None)              # 显式清空 → 回到内置颜色
+            _CUSTOM.pop(name, None)              # 显式清空 → 回到内置颜色
             continue
         if is_hex_color(text):
-            _CUSTOM[key] = normalize_hex(text)
+            _CUSTOM[name] = normalize_hex(text)
 
 
 def settings_for_colors(settings: object = None):
@@ -776,72 +906,59 @@ def settings_for_colors(settings: object = None):
 
 
 def load_custom_colors(settings: object = None) -> bool:
-    """从 QSettings 载入自定义色板（启动时调用）。有载入到东西返回 True。"""
+    """从 QSettings 载入自定义颜色（启动时调用）。有载入到东西返回 True。"""
     store = settings_for_colors(settings)
     if store is None:
         return False
     loaded = False
-    for key, setting_key in (
-        ("light_ansi", SETTINGS_CUSTOM_LIGHT_ANSI),
-        ("dark_ansi", SETTINGS_CUSTOM_DARK_ANSI),
-    ):
+    for key in custom_color_keys():
         try:
-            value = store.value(setting_key, "")
+            value = store.value(color_setting_key(key), "")
         except (TypeError, RuntimeError):
             continue
-        parsed = parse_palette_text(value)
-        if parsed is not None:
-            _CUSTOM[key] = parsed
-            loaded = True
-    for key, setting_key in (
-        ("light_bg", SETTINGS_CUSTOM_LIGHT_BG),
-        ("light_fg", SETTINGS_CUSTOM_LIGHT_FG),
-        ("dark_bg", SETTINGS_CUSTOM_DARK_BG),
-        ("dark_fg", SETTINGS_CUSTOM_DARK_FG),
-    ):
-        try:
-            value = str(store.value(setting_key, "") or "").strip()
-        except (TypeError, RuntimeError):
+        if key.endswith("_ansi"):
+            parsed = parse_palette_text(value)
+            if parsed is not None:
+                _CUSTOM[key] = parsed
+                loaded = True
             continue
-        if value and is_hex_color(value):
-            _CUSTOM[key] = normalize_hex(value)
+        text = str(value or "").strip()
+        if text and is_hex_color(text):
+            _CUSTOM[key] = normalize_hex(text)
             loaded = True
     return loaded
 
 
 def save_custom_colors(settings: object = None, **values) -> bool:
-    """把自定义色板写进 QSettings（工作台"保存"按钮用）。空值 = 删除该项。"""
+    """把自定义颜色写进 QSettings（工作台"保存"按钮用）。空值 = 删除该项。"""
     store = settings_for_colors(settings)
     if store is None:
         return False
-    mapping = {
-        "light_ansi": SETTINGS_CUSTOM_LIGHT_ANSI,
-        "dark_ansi": SETTINGS_CUSTOM_DARK_ANSI,
-        "light_bg": SETTINGS_CUSTOM_LIGHT_BG,
-        "light_fg": SETTINGS_CUSTOM_LIGHT_FG,
-        "dark_bg": SETTINGS_CUSTOM_DARK_BG,
-        "dark_fg": SETTINGS_CUSTOM_DARK_FG,
-    }
+    allowed = set(custom_color_keys())
     for key, value in (values or {}).items():
-        setting_key = mapping.get(key)
-        if setting_key is None:
+        name = str(key)
+        if name not in allowed:
             continue
-        if value is None or (isinstance(value, str) and not value.strip()):
+        setting_key = color_setting_key(name)
+        empty = value is None or (isinstance(value, (str, list, tuple)) and len(value) == 0)
+        if empty:
             try:
                 store.remove(setting_key)
             except (TypeError, RuntimeError):
                 continue
-            _CUSTOM.pop(key, None)
+            _CUSTOM.pop(name, None)
             continue
-        if key.endswith("_ansi"):
+        if name.endswith("_ansi"):
             parsed = parse_palette_text(value)
             if parsed is None:
                 continue
             text = ",".join(parsed)
-            _CUSTOM[key] = parsed
+            _CUSTOM[name] = parsed
         else:
+            if not is_hex_color(value):
+                continue
             text = normalize_hex(str(value))
-            _CUSTOM[key] = text
+            _CUSTOM[name] = text
         try:
             store.setValue(setting_key, text)
         except (TypeError, RuntimeError):
@@ -854,16 +971,12 @@ def save_custom_colors(settings: object = None, **values) -> bool:
 
 
 def clear_custom_colors(settings: object = None) -> None:
-    """清掉自定义色板（回到内置那套）。"""
+    """清掉全部自定义颜色（回到内置那套）。"""
     store = settings_for_colors(settings)
-    for setting_key in (
-        SETTINGS_CUSTOM_LIGHT_ANSI, SETTINGS_CUSTOM_DARK_ANSI,
-        SETTINGS_CUSTOM_LIGHT_BG, SETTINGS_CUSTOM_LIGHT_FG,
-        SETTINGS_CUSTOM_DARK_BG, SETTINGS_CUSTOM_DARK_FG,
-    ):
+    for key in custom_color_keys():
         if store is not None:
             try:
-                store.remove(setting_key)
+                store.remove(color_setting_key(key))
             except (TypeError, RuntimeError):
                 pass
     _CUSTOM.clear()
@@ -1035,8 +1148,8 @@ def mix_colors(first: str, second: str, ratio: float) -> str:
 
 
 def focus_border_color(widget: Optional[QWidget] = None) -> str:
-    """窗格焦点边框色。"""
-    return FOCUS_BORDER_DARK if is_dark(widget) else FOCUS_BORDER_LIGHT
+    """窗格焦点边框色（可自定义）。"""
+    return role_color("focus_border", widget=widget)
 
 
 def palette_color(widget: Optional[QWidget], role: QPalette.ColorRole, fallback: str) -> str:
@@ -1049,62 +1162,42 @@ def palette_color(widget: Optional[QWidget], role: QPalette.ColorRole, fallback:
 
 
 def nav_palette(widget: Optional[QWidget] = None) -> Dict[str, str]:
-    """左栏 QSS 需要的全部颜色（深色/浅色各一套，浅色尽量贴近原生）。"""
-    if is_dark(widget):
-        return {
-            "base": palette_color(widget, QPalette.ColorRole.Base, DARK_BASE),
-            "text": palette_color(widget, QPalette.ColorRole.WindowText, DARK_TEXT),
-            "border": palette_color(widget, QPalette.ColorRole.Mid, DARK_BORDER),
-            "sel": palette_color(widget, QPalette.ColorRole.Highlight, DARK_HIGHLIGHT),
-            "sel_text": palette_color(
-                widget, QPalette.ColorRole.HighlightedText, DARK_HIGHLIGHT_TEXT
-            ),
-            "hover": palette_color(
-                widget, QPalette.ColorRole.AlternateBase, DARK_ALTERNATE
-            ),
-            "button": palette_color(widget, QPalette.ColorRole.Button, DARK_BUTTON),
-            "disabled": _disabled_text_color(widget),
-        }
+    """左栏 QSS 需要的全部颜色。
+
+    N3.x：**全部走颜色角色**。以前浅色这一支直接读系统调色板
+    （`palette_color(Base, ...)` 拿到的是纯白），于是"左侧列表底色"根本不受我们控制 ——
+    想在浅色下用淡灰都做不到。真机需求就是"左侧 bot 实例部分改成淡灰"，所以必须收敛到角色。
+    """
     return {
-        "base": NAV_LIGHT_BG,
-        "text": NAV_LIGHT_SELECTED_TEXT,
-        "border": NAV_LIGHT_BORDER,
-        "sel": NAV_LIGHT_SELECTED_BG,
-        "sel_text": NAV_LIGHT_SELECTED_TEXT,
-        "hover": NAV_LIGHT_HOVER_BG,
-        "button": palette_color(widget, QPalette.ColorRole.Button, "#f0f0f0"),
-        "disabled": _disabled_text_color(widget),
+        "base": role_color("base", widget=widget),
+        "text": role_color("text", widget=widget),
+        "border": role_color("border", widget=widget),
+        "sel": role_color("selection_bg", widget=widget),
+        "sel_text": role_color("selection_text", widget=widget),
+        "hover": role_color("alternate", widget=widget),
+        "button": role_color("button", widget=widget),
+        "disabled": role_color("disabled", widget=widget),
     }
 
 
 def _disabled_text_color(widget: Optional[QWidget] = None) -> str:
     """禁用态文字色。"""
-    try:
-        palette = widget.palette() if widget is not None else QApplication.palette()
-        return palette.color(
-            QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText
-        ).name()
-    except (AttributeError, TypeError, RuntimeError):
-        return "#7a7a7a"
+    return role_color("disabled", widget=widget)
 
 
 def log_colors_for(dark: bool) -> Tuple[str, str, str, str]:
     """日志区四色：(背景, 文字, 边框, 选中背景)。
 
-    底色与文字色**允许被自定义色板覆盖**（工作台里调出来的值）；
-    边框与选中色始终用内置的 —— 它们和界面其它部分要配套。
+    四色**全部可被自定义色板覆盖**（工作台里调出来的值）；
+    角色分别是 `bg` / `fg` / `border` / `highlight` —— 与界面其它部分共用同一张表，
+    所以改"边框/强调色"时日志区会跟着一起变，不会各说各话。
     """
-    if dark:
-        background, text, border, selection = (
-            LOG_DARK_BG, LOG_DARK_TEXT, LOG_DARK_BORDER, LOG_DARK_SELECTION)
-        keys = ("dark_bg", "dark_fg")
-    else:
-        background, text, border, selection = (
-            LOG_LIGHT_BG, LOG_LIGHT_TEXT, LOG_LIGHT_BORDER, LOG_LIGHT_SELECTION)
-        keys = ("light_bg", "light_fg")
-    background = str(_CUSTOM.get(keys[0]) or background)
-    text = str(_CUSTOM.get(keys[1]) or text)
-    return background, text, border, selection
+    return (
+        role_color("bg", dark=dark),
+        role_color("fg", dark=dark),
+        role_color("border", dark=dark),
+        role_color("highlight", dark=dark),
+    )
 
 
 def log_colors(widget: Optional[QWidget] = None) -> Tuple[str, str, str, str]:
@@ -1195,32 +1288,32 @@ def chrome_palette(widget: Optional[QWidget] = None) -> Dict[str, str]:
     """
     if is_dark(widget):
         return {
-            "text": DARK_TEXT,
-            "muted": MUTED_DARK,
-            "button": DARK_BUTTON,
-            "button_text": DARK_TEXT,
-            "border": DARK_BORDER,
-            "hover": DARK_ALTERNATE,
-            "sel": DARK_HIGHLIGHT,
-            "sel_text": DARK_HIGHLIGHT_TEXT,
-            "disabled": DARK_DISABLED_TEXT,
-            "tooltip_bg": DARK_BASE,
-            "chrome_bg": DARK_WINDOW,
+            "text": role_color("text", dark=True),
+            "muted": role_color("muted", dark=True),
+            "button": role_color("button", dark=True),
+            "button_text": role_color("text", dark=True),
+            "border": role_color("border", dark=True),
+            "hover": role_color("alternate", dark=True),
+            "sel": role_color("highlight", dark=True),
+            "sel_text": role_color("highlight_text", dark=True),
+            "disabled": role_color("disabled", dark=True),
+            "tooltip_bg": role_color("base", dark=True),
+            "chrome_bg": role_color("window", dark=True),
         }
     # N3.0：跟随系统已解析成深浅之一，is_dark() 已经给出正确结果，
     # 因此这里不再需要单独的"系统分支"（少一条分支就少一处 bug）。
     return {
-        "text": LIGHT_TEXT,
-        "muted": MUTED_LIGHT,
-        "button": LIGHT_BUTTON,
-        "button_text": LIGHT_TEXT,
-        "border": LIGHT_BORDER,
-        "hover": LIGHT_ALTERNATE,
-        "sel": LIGHT_HIGHLIGHT,
-        "sel_text": LIGHT_HIGHLIGHT_TEXT,
-        "disabled": LIGHT_DISABLED_TEXT,
-        "tooltip_bg": "#fbfaf7",
-        "chrome_bg": LIGHT_WINDOW,
+        "text": role_color("text", dark=False),
+        "muted": role_color("muted", dark=False),
+        "button": role_color("button", dark=False),
+        "button_text": role_color("text", dark=False),
+        "border": role_color("border", dark=False),
+        "hover": role_color("alternate", dark=False),
+        "sel": role_color("highlight", dark=False),
+        "sel_text": role_color("highlight_text", dark=False),
+        "disabled": role_color("disabled", dark=False),
+        "tooltip_bg": role_color("base", dark=False),
+        "chrome_bg": role_color("window", dark=False),
     }
 
 
@@ -1617,14 +1710,9 @@ def nav_tree_qss(widget: Optional[QWidget] = None) -> str:
 def pane_qss(widget: Optional[QWidget] = None) -> str:
     """窗格（PaneWidget）样式：焦点边框 + 标题栏底色。"""
     border = focus_border_color(widget)
-    if is_dark(widget):
-        panel = palette_color(widget, QPalette.ColorRole.AlternateBase, DARK_ALTERNATE)
-        text = palette_color(widget, QPalette.ColorRole.WindowText, DARK_TEXT)
-        separator = palette_color(widget, QPalette.ColorRole.Mid, DARK_BORDER)
-    else:
-        panel = NAV_LIGHT_HOVER_BG
-        text = NAV_LIGHT_SELECTED_TEXT
-        separator = NAV_LIGHT_BORDER
+    panel = role_color("alternate", widget=widget)
+    text = role_color("text", widget=widget)
+    separator = role_color("border", widget=widget)
     return (
         "QWidget#paneTitleBar {{"
         "  background-color: {panel};"

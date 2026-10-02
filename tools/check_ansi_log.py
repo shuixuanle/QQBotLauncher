@@ -25,8 +25,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tools"))
 
 from app.ansi import AnsiColor, AnsiParser, has_ansi, strip_ansi  # noqa: E402
+from _theme_probe import load_theme_namespace                     # noqa: E402
 
 PROGRAM_WIDGET = ROOT / "app" / "ui" / "program_widget.py"
 BOT_TAB = ROOT / "app" / "ui" / "bot_tab.py"
@@ -115,47 +117,13 @@ def run_color_checks() -> None:
     """把 theme.py 里**不依赖 PyQt6 的纯函数**抠出来执行，真验一遍颜色数学。
 
     为什么要这么绕：`theme.py` 顶部 import PyQt6，而这台机器上不一定装了它
-    （本检查器要能在只有标准库的环境里跑）。所以用 AST 取源码 + 注入常量，
-    与 `check_branch_qss.py` 是同一套办法。
+    （本检查器要能在只有标准库的环境里跑）。抠源码这件事交给公共工具
+    `tools/_theme_probe.py`：它会自动把"函数用到的常量与别的函数"一起收进来
+    （以前手写清单，每加一个角色表就要 NameError 一次）。
     """
-    theme_path = ROOT / "app" / "ui" / "theme.py"
-    theme_src = theme_path.read_text(encoding="utf-8")
-    theme_tree = ast.parse(theme_src)
-
-    wanted = ("ansi_index_rgb", "color_luminance", "readable_rgb", "_hex_color",
-              "ansi_palette", "log_colors")
-    # 第一行必须是 future import：theme.py 顶部就有它，所以那些
-    # `Optional[QWidget]` 注解在真模块里不求值；抠出来单独 exec 时若缺这句，
-    # 注解会在 def 时求值 → NameError: name 'QWidget' is not defined
-    # （`check_branch_qss.py` 就是踩了这个坑，这里一开始也踩了一次）。
-    code = (
-        "from __future__ import annotations\n"
-        "import os\n"
-        "from typing import Optional, Tuple\n"
-        "is_dark = lambda widget=None: False\n"
-    )
-    for node in theme_tree.body:
-        # 常量（ANSI 色板 / 阈值 / 色立方）用字面量取出来。
-        # 注意：带类型注解的赋值是 AnnAssign，不是 Assign —— 两种都要管。
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            name = node.target.id
-            value_node = node.value
-        elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
-                and isinstance(node.targets[0], ast.Name):
-            name = node.targets[0].id
-            value_node = node.value
-        else:
-            name, value_node = "", None
-        if name.startswith("ANSI_") or name.startswith("LOG_"):
-            try:
-                code += "{} = {!r}\n".format(name, ast.literal_eval(value_node))
-            except ValueError:
-                continue
-        elif isinstance(node, ast.FunctionDef) and node.name in wanted:
-            code += "\n" + (ast.get_source_segment(theme_src, node) or "") + "\n"
-
-    namespace: dict = {}
-    exec(code, namespace)  # noqa: S102 - 只执行本项目自己的纯函数
+    namespace = load_theme_namespace(
+        ("ansi_index_rgb", "color_luminance", "readable_rgb", "_hex_color",
+         "ansi_palette", "log_colors"))
     index_rgb = namespace["ansi_index_rgb"]
     luma = namespace["color_luminance"]
     readable = namespace["readable_rgb"]
@@ -243,40 +211,9 @@ def check_log_colors_arity() -> None:
     现在调用方写成 ``log_colors(self)[:2]``（只取前两个），这里把真实返回抠出来对一遍：
     长度必须 ≥ 2，且前两个是合法的 `#rrggbb`。
     """
-    theme_path = ROOT / "app" / "ui" / "theme.py"
-    theme_src = theme_path.read_text(encoding="utf-8")
-    theme_tree = ast.parse(theme_src)
-
-    code = (
-        "from __future__ import annotations\n"
-        "import os\n"
-        "from typing import Optional, Tuple\n"
-        "def is_dark(widget=None):\n"
-        "    return bool(_FORCE_DARK[0])\n"
-        "_FORCE_DARK = [False]\n"
-        # 自定义色板表：这里有它就是空的（没人在工作台里存过色），
-        # 但**必须注入** —— log_colors_for() 会读它
-        "_CUSTOM = {}\n"
-    )
-    for node in theme_tree.body:
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            name, value_node = node.target.id, node.value
-        elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
-                and isinstance(node.targets[0], ast.Name):
-            name, value_node = node.targets[0].id, node.value
-        else:
-            name, value_node = "", None
-        if (name.startswith("ANSI_") or name.startswith("LOG_")) and value_node is not None:
-            try:
-                code += "{} = {!r}\n".format(name, ast.literal_eval(value_node))
-            except ValueError:
-                continue
-        elif isinstance(node, ast.FunctionDef) and node.name in ("log_colors", "log_colors_for"):
-            # 两个都要：log_colors() 现在只是转发给 log_colors_for()
-            code += "\n" + (ast.get_source_segment(theme_src, node) or "") + "\n"
-
-    namespace: dict = {}
-    exec(code, namespace)  # noqa: S102 - 只执行本项目自己的纯函数
+    # log_colors → log_colors_for → role_color → builtin_role_color → 角色表：
+    # 依赖交给公共工具自动收，别在这里手写清单（少一个就 NameError）
+    namespace = load_theme_namespace(("log_colors",))
     log_colors = namespace["log_colors"]
 
     for dark in (False, True):

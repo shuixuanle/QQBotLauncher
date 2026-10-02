@@ -29,10 +29,21 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+
+from _theme_probe import load_theme_namespace                 # noqa: E402
 
 THEME = ROOT / "app" / "ui" / "theme.py"
 MAIN = ROOT / "main.py"
 STUDIO = ROOT / "tools" / "palette_studio.py"
+
+#: 这些函数要抠出来真跑（依赖会被自动带上）
+NEEDED_FUNCTIONS = (
+    "parse_palette_text", "is_hex_color", "normalize_hex",
+    "relative_luminance", "contrast_ratio",
+    "set_custom_colors", "ansi_palette", "log_colors_for",
+    "custom_colors", "role_color", "resolve_roles", "builtin_role_color",
+)
 
 failures = []
 
@@ -104,43 +115,12 @@ def builtin_literals(source: str, name: str):
 # ---------------------------------------------------------------------------
 
 def build_theme_namespace():
-    """把 theme.py 里不依赖 Qt 的部分抠出来执行（与 check_branch_qss.py 同一套办法）。
+    """抠出 theme.py 里不依赖 Qt 的部分（公共工具，见 tools/_theme_probe.py）。
 
-    除了几个纯函数，还要注入 `is_dark`（否则 `ansi_palette` / `log_colors_for`
-    没法判断深浅）与 `_CUSTOM`（自定义色板表）。
+    以前这里手写"要哪几个常量、要哪几个函数"，结果每加一个角色表就 NameError 一次
+    （`UI_ROLES`、`ROLE_TABLES`…）—— 现在交给公共工具自动收依赖。
     """
-    source, tree = get_source(THEME)
-    wanted = ("parse_palette_text", "is_hex_color", "normalize_hex",
-              "relative_luminance", "contrast_ratio",
-              "set_custom_colors", "ansi_palette", "log_colors_for", "custom_colors")
-    code = (
-        "from __future__ import annotations\n"
-        "import json\n"
-        "import re\n"
-        "from typing import Dict, Optional, Tuple\n"
-        "_FORCE_DARK = [False]\n"
-        "def is_dark(widget=None):\n"
-        "    return bool(_FORCE_DARK[0])\n"
-        "_CUSTOM = {}\n"
-    )
-    for node in tree.body:
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            name, value_node = node.target.id, node.value
-        elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
-                and isinstance(node.targets[0], ast.Name):
-            name, value_node = node.targets[0].id, node.value
-        else:
-            name, value_node = "", None
-        if name.startswith(("ANSI_", "LOG_")) and value_node is not None:
-            try:
-                code += "{} = {!r}\n".format(name, ast.literal_eval(value_node))
-            except ValueError:
-                continue
-        elif isinstance(node, ast.FunctionDef) and node.name in wanted:
-            code += "\n" + (ast.get_source_segment(source, node) or "") + "\n"
-    namespace: dict = {}
-    exec(code, namespace)  # noqa: S102 - 只执行本项目自己的纯函数
-    return namespace
+    return load_theme_namespace(NEEDED_FUNCTIONS)
 
 
 def own_contrast(color_a: str, color_b: str) -> float:
@@ -239,6 +219,58 @@ def run_parse_checks() -> None:
     set_custom(dark_ansi=(), dark_bg="", dark_fg="")
     check("两套都清空后 custom_colors() 为空", not namespace["custom_colors"]())
 
+    print("\n[3c] 界面角色（整个界面可自定义的基础）")
+    role_color = namespace["role_color"]
+    resolve_roles = namespace["resolve_roles"]
+    ui_roles = namespace["UI_ROLES"]
+    labels = namespace["ROLE_LABELS"]
+    set_custom = namespace["set_custom_colors"]
+
+    check("角色数量 ≥ 15（窗体/列表/文字/按钮/边框/选中/日志…）", len(ui_roles) >= 15,
+          str(len(ui_roles)))
+    check("每个角色都有中文名（工作台要用）",
+          all(role in labels for role in ui_roles),
+          str([role for role in ui_roles if role not in labels]))
+    for dark_mode in (False, True):
+        resolved = resolve_roles(dark=dark_mode)
+        bad = [role for role, color in resolved.items()
+               if not (len(color) == 7 and color.startswith("#"))]
+        check("{}内置角色全是 #rrggbb".format("深色" if dark_mode else "浅色"), not bad, str(bad))
+    check("浅色列表底色 = 淡灰 #f4f4f4（真机要求）",
+          role_color("base", dark=False) == "#f4f4f4", role_color("base", dark=False))
+    check("深色列表底色不受影响", role_color("base", dark=True) == "#1e1f22",
+          role_color("base", dark=True))
+
+    # 逐个角色都能被覆盖（这就是"整个界面可自定义"的保证）
+    overridden = {}
+    for index, role in enumerate(ui_roles):
+        value = "#{:02x}{:02x}{:02x}".format(10 + index, 20 + index, 30 + index)
+        set_custom(**{"light_" + role: value})
+        overridden[role] = value
+    wrong = [role for role in ui_roles if role_color(role, dark=False) != overridden[role]]
+    check("15 个角色都能被自定义覆盖", not wrong, str(wrong))
+    wrong_dark = [role for role in ui_roles
+                  if role_color(role, dark=True) != namespace["DARK_ROLES"][role]]
+    check("只改浅色时深色不受影响", not wrong_dark, str(wrong_dark))
+    set_custom(**{"light_" + role: "" for role in ui_roles})
+    check("显式清空后全部回到内置",
+          all(role_color(role, dark=False) == namespace["LIGHT_ROLES"][role]
+              for role in ui_roles))
+
+    print("\n[3d] 内置角色的可读性（文字类不能糊成一团）")
+    light_roles = namespace["LIGHT_ROLES"]
+    dark_roles = namespace["DARK_ROLES"]
+    for name, table in (("浅色", light_roles), ("深色", dark_roles)):
+        main_ratio = contrast(table["text"], table["window"])
+        log_ratio = contrast(table["fg"], table["bg"])
+        muted_ratio = contrast(table["muted"], table["window"])
+        sel_ratio = contrast(table["selection_text"], table["selection_bg"])
+        check("{}主文字 / 窗体 ≥ 7:1".format(name), main_ratio >= 7.0, "{:.2f}".format(main_ratio))
+        check("{}日志文字 / 日志底 ≥ 7:1".format(name), log_ratio >= 7.0, "{:.2f}".format(log_ratio))
+        check("{}次要文字 / 窗体 ≥ 3:1".format(name), muted_ratio >= 3.0, "{:.2f}".format(muted_ratio))
+        check("{}选中行文字 / 选中底色 ≥ 4.5:1".format(name), sel_ratio >= 4.5,
+              "{:.2f}".format(sel_ratio))
+
 
 # ---------------------------------------------------------------------------
 # [3][4][5][6] 接线（AST）
@@ -249,22 +281,29 @@ def run_wiring_checks() -> None:
     main_source, main_tree = get_source(MAIN)
     studio_source, studio_tree = get_source(STUDIO)
 
-    print("\n[4] theme.py：自定义色板被真正使用")
+    print("\n[4] theme.py：自定义颜色被真正使用（整个界面，不只是日志区）")
     ansi_palette = find_function(theme_tree, "ansi_palette")
     check("ansi_palette 会查自定义（引用 _CUSTOM）",
           ansi_palette is not None and "_CUSTOM" in names_in(ansi_palette))
-    log_colors_for = find_function(theme_tree, "log_colors_for")
-    check("log_colors_for 会查自定义（引用 _CUSTOM）",
-          log_colors_for is not None and "_CUSTOM" in names_in(log_colors_for))
-    log_colors = find_function(theme_tree, "log_colors")
-    check("log_colors 转发给 log_colors_for",
-          log_colors is not None and "log_colors_for" in calls_in(log_colors))
-    apply_palette = find_function(theme_tree, "apply_log_palette")
-    check("apply_log_palette 也走 log_colors_for（底色覆盖才生效）",
-          apply_palette is not None and "log_colors_for" in calls_in(apply_palette))
+    for name in ("nav_palette", "chrome_palette", "log_colors_for", "muted_text_color",
+                 "focus_border_color", "pane_qss", "_build_light_palette",
+                 "_build_dark_palette"):
+        node = find_function(theme_tree, name)
+        calls = calls_in(node) if node is not None else set()
+        check("{} 走颜色角色（role_color）".format(name), "role_color" in calls,
+              str(sorted(calls))[:80])
+    nav = find_function(theme_tree, "nav_palette")
+    check("nav_palette 不再直接读系统调色板（否则淡灰不生效）",
+          nav is not None and "palette_color" not in calls_in(nav))
+    check("nav_palette 的底色用 base 角色",
+          nav is not None and "base" in {c.value for c in ast.walk(nav)
+                                         if isinstance(c, ast.Constant)})
     for name in ("load_custom_colors", "save_custom_colors", "clear_custom_colors",
-                 "set_custom_colors", "custom_colors", "settings_for_colors"):
+                 "set_custom_colors", "custom_colors", "settings_for_colors",
+                 "role_color", "resolve_roles", "custom_color_keys"):
         check("theme.py 有 {}".format(name), find_function(theme_tree, name) is not None)
+    check("自定义颜色的设置键收敛成一个前缀（colors/…）",
+          "SETTINGS_CUSTOM_PREFIX" in names_in(find_function(theme_tree, "color_setting_key")))
 
     print("\n[5] main.py：启动时载入自定义色板")
     setup_theme = find_function(main_tree, "setup_theme")
