@@ -344,9 +344,11 @@ tools\run_all_checks.bat                :: 同上，双击也能跑（自动切 
 > - 需要 `&&` / 管道 / 重定向 / `chcp`：勾选「通过命令解释器启动」，命令写 `chcp 65001 >nul && yarn start`
 > - `.bat` / `.cmd` 脚本无需勾选，程序会自动用 `cmd.exe /c` 包裹
 > - 环境变量请填在「环境变量」表格里（用 `SET X=Y && ...` 写进命令只在该条命令内有效，且容易踩引号的坑）
-> - 需要管理员权限的程序（例如消防栓 NewHydrant），命令写成
->   `powershell -NoProfile -Command "Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-Command','cmd.exe /c \"\"<批处理路径>\"\"'"`
->   这样启动时会弹 UAC 提权，环境变量与工作目录在批处理内部设置
+> - 需要管理员权限的程序（例如消防栓 NewHydrant）：**把提权写进一个 `.bat`**，放进
+>   `scripts\` 目录，命令填 `cmd.exe /c 你的脚本.bat`、工作目录填 `scripts`。
+>   不要试图把 `powershell -Verb RunAs ...` 直接写进命令里 —— 引号要过三层解释，
+>   实测会变成"命令被打印出来、程序没启动、退出码还是 0"。
+>   模板与踩坑清单见 [`scripts/README.md`](scripts/README.md)
 
 2. 点 **保存** → 配置立即写入 `bots_config.json`。
 3. 点 **启动当前 Bot**（或右键菜单「启动」）→ 自动打开 Tab 并依次拉起程序。
@@ -1135,7 +1137,7 @@ QQBot启动管理器/
 │   └── screenshots/             # README 用的界面截图（浅色 / 深色，作者本机实拍）
 │   （作者本机还有 _local/ 放私人笔记，整个目录不进仓库 —— 你那边不会看到）
 ├── scripts/
-│   └── start_hydrant.bat        # 需要管理员权限的程序示例（runas 提权启动脚本）
+│   └── README.md                # 提权启动脚本放哪 / 怎么写（作者本机那份脚本不进仓库）
 ├── 启动（普通模式）.bat          # 双击即用（普通权限）
 ├── 启动（管理员模式）.bat        # 双击即用（启动时弹一次 UAC）
 ├── 启动（exe·临时目录修复）.bat  # exe 报"无法创建临时目录"时用它

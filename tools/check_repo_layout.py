@@ -143,14 +143,23 @@ def git_tracked():
 
 def check_root() -> None:
     print("[1] 根目录白名单")
-    extra = []
+    extra, ignored_here = [], []
     for entry in sorted(ROOT.iterdir(), key=lambda path: path.name):
         if entry.name in ALLOWED_ROOT:
+            continue
+        # 被 .gitignore 忽略的本机产物（运行时日志、缓存、配置……）不算"乱"：
+        # 管理器一跑就会写出 close_debug.log 之类的东西，那是预期的。
+        # 这条检查针对的是"会被提交的东西"。
+        if git_ignored(entry.name) is True:
+            ignored_here.append(entry.name)
             continue
         extra.append(entry.name + ("/" if entry.is_dir() else ""))
     is_git = (ROOT / ".git").exists()
     hint = "" if not extra else "（确实需要就加进 ALLOWED_ROOT 并写清用途）"
     check("根目录没有清单外的条目{}".format(hint), not extra, str(extra))
+    if ignored_here:
+        print("     （已忽略的本机产物 {} 个：{}）".format(
+            len(ignored_here), ", ".join(ignored_here[:6])))
     if not is_git:
         print("     （提示：这不是 git 仓库，稍后几条 git 相关检查会跳过）")
 

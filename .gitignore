@@ -102,6 +102,15 @@ tools/diagnostics/_selector_probe.py
 tools/diagnostics/启动诊断.vbs
 
 # ---------------------------------------------------------------------------
+# scripts/ 里"作者本机专用"的脚本（仓库只保留 scripts/README.md 讲清用途与模板）
+#   · start_hydrant.bat      针对本机布局写的提权启动脚本（路径 / dotnet 版本是本地的）
+#   · README-start_hydrant.md 它的中文说明（模板与踩坑已并进 scripts/README.md）
+# 想恢复某个文件到仓库：git add -f <path>
+# ---------------------------------------------------------------------------
+scripts/start_hydrant.bat
+scripts/README-start_hydrant.md
+
+# ---------------------------------------------------------------------------
 # 只留给自己看的东西（不进仓库）—— 统一放在 _local/ 里，根目录保持干净
 #   · 上传/推送流程、PR 审查、仓库改名等维护动作 —— 对使用者没用，
 #     对贡献者也不适用（他们走 Fork + PR，不需要推送权限）

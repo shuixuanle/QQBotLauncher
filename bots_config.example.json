@@ -101,7 +101,7 @@
       "name": "消防栓",
       "enabled": true,
       "working_dir": "<你的机器人目录，例如 D:\\BOTBENTI\\示例机器人>",
-      "description": "对应 osubot启动.bat 的 [2] 消防栓 Bot（NewHydrant），启动时会弹 UAC 提权。",
+      "description": "对应 osubot启动.bat 的 [2] 消防栓 Bot（NewHydrant），启动时会弹 UAC 提权。注意：start_hydrant.bat 是你自己放进 scripts\\ 的提权脚本（本仓库不含它），写法与踩坑见 scripts/README.md。",
       "programs": [
         {
           "id": "prog_hydrant_main",

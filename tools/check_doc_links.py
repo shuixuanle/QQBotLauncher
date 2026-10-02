@@ -32,7 +32,7 @@ DOCS = (
     "README.md",
     "CONTRIBUTING.md",
     "启动方式说明.md",
-    "scripts/README-start_hydrant.md",
+    "scripts/README.md",
 )
 
 #: `[文字](目标)` 与 `![文字](目标)`

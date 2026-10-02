@@ -52,7 +52,17 @@ if not defined PYW (
 )
 
 echo Using: %PY%
+
+rem ---- already elevated? then just start, without a UAC prompt ----
+rem  Real feedback: "it only said 'requesting administrator rights' and then the
+rem  manager opened directly" - that happens when this script is already running
+rem  elevated (or when Windows UAC is set to "never notify"), because Start-Process
+rem  -Verb RunAs needs no prompt then. Checking first makes the message honest.
+net session >nul 2>&1
+if %errorlevel%==0 goto already_admin
+
 echo Requesting administrator rights - please click Yes on the UAC prompt...
+echo   [if Windows UAC is set to "never notify", no prompt appears - that is normal]
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath '%PYW%' -ArgumentList 'main.py','--no-elevate' -WorkingDirectory '%~dp0' -Verb RunAs -Wait -PassThru; exit $p.ExitCode } catch { exit 1223 }"
 set "RC=%errorlevel%"
 if not "%RC%"=="0" (
@@ -62,6 +72,12 @@ if not "%RC%"=="0" (
     echo.
     pause
 )
+exit /b %RC%
+
+:already_admin
+echo Already running as administrator - starting directly, no UAC prompt.
+"%PYW%" main.py --no-elevate
+set "RC=%errorlevel%"
 exit /b %RC%
 
 rem ------------------------------------------------------------
