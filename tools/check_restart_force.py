@@ -111,18 +111,29 @@ def close_probe(manager, key: str) -> None:
 def main() -> int:
     app = QCoreApplication(sys.argv[:1])
 
-    # 打桩：不真的去 taskkill，但模拟"两次 finished"的时序 ——
-    # 先杀掉真进程（模拟 taskkill /F 成功），taskkill 进程稍后才报结束。
+    # 打桩 + 记录：
+    #   · `_taskkill_async` 是**真正**的停止路径（起一个 taskkill 进程，见 process_manager），
+    #     这里包一层只做记录，让真正的 taskkill 照跑 —— 所以"进程真的被杀了"也是被测的；
+    #   · `_taskkill_sync` 是兜底路径，打成桩（沙箱/受限环境里起不了进程时不至于卡住）。
+    #
+    # 真机教训（2026-10-02）：以前只桩 `_taskkill_sync`，而真机上走的是
+    # `_taskkill_async` —— 于是"调用过 taskkill"永远是 0 次，断言必然失败。
     original_sync = ProcessManager._taskkill_sync
+    original_async = ProcessManager._taskkill_async
     calls = []
     manager = None
     key = ""
 
+    def counting_async(self, key_, pid, force=False):
+        calls.append((int(pid or 0), bool(force)))
+        return original_async(self, key_, pid, force)
+
     def fake_taskkill_sync(pid: int) -> bool:
-        calls.append(int(pid))
+        calls.append((int(pid), True))
         print("      [桩] _taskkill_sync(PID {}) —— 沙箱里不真的杀".format(pid))
         return True
 
+    ProcessManager._taskkill_async = counting_async
     ProcessManager._taskkill_sync = staticmethod(fake_taskkill_sync)
 
     logs = []
@@ -155,8 +166,8 @@ def main() -> int:
         first_pid = entry.pid
         print("    第一个 PID = {}".format(first_pid))
 
-        print("\n[2] 触发重启（先停止再启动；宽限 800ms，必然走到强制结束）")
-        manager.restart(key, timeout_ms=800)   # 800ms 宽限 → 必然走强制分支
+        print("\n[2] 触发重启（先停止再启动）")
+        manager.restart(key, timeout_ms=800)
         pump(app, 12000)
 
         entry2 = manager._entries.get(key)
@@ -170,13 +181,39 @@ def main() -> int:
         check("日志里出现「正在重启」", "正在重启" in "".join(logs))
         check("日志里出现「已停止，准备重启」或走到重启分支",
               ("准备重启" in "".join(logs)) or ("正在重启" in "".join(logs)))
+        check("停止时确实下发了 taskkill（两段式停止的第一步）", bool(calls),
+              "记录到的 taskkill 调用 = {}".format(calls))
+        forced = [pid for pid, is_force in calls if is_force]
+        if forced:
+            print("    本次走到了强制分支（带 /F 的 taskkill：{}）".format(forced))
+        else:
+            # 真机上很常见：探针自己响应了关闭请求，宽限期没到就退了 —— 这不是失败，
+            # 而是"优雅停止成功了"。强制分支另有一段**确定性**的验证（下面 [3]）。
+            print("    本次由优雅停止完成（探针响应了关闭请求），强制分支见 [3]")
 
-        print("\n[3] 收尾：停掉探针进程")
+        print("\n[3] 强制停止路径（确定性：force=True 会立刻下发带 /F 的 taskkill）")
+        calls.clear()
+        entry2 = manager._entries.get(key)
+        if entry2 is not None and entry2.is_running:
+            third_pid = entry2.pid
+            manager.stop(key, timeout_ms=500, force=True)
+            pump(app, 3000)
+            forced_now = [pid for pid, is_force in calls if is_force]
+            check("force=True 时下发了带 /F 的 taskkill",
+                  bool(forced_now), "记录 = {}".format(calls))
+            check("进程确实被结束了（不再是 running）",
+                  not manager.is_running(key), "state={}".format(manager.state(key)))
+            if third_pid:
+                kill_pid_tree(third_pid)          # 兜底：极端情况下自己收尾
+        else:
+            check("强制停止前进程还在运行", False, "上一段重启后没拿到运行中的进程")
+
+        print("\n[4] 收尾：停掉探针进程")
         if entry2 is not None and entry2.is_running:
             second = entry2.pid
             manager.stop(key, timeout_ms=500, force=True)
             pump(app, 1500)
-            # 沙箱里 taskkill 是桩，真进程会活下来 —— 直接用 Qt 的 kill 收尾
+            # 兜底：真进程万一下不来，直接用 Qt 的 kill 收尾
             try:
                 entry2.process.kill()
                 entry2.process.waitForFinished(3000)
@@ -186,12 +223,14 @@ def main() -> int:
             print("    已终止 PID {}".format(second))
         manager.cleanup()
 
-        print("\n[4] 关键代码路径确认")
-        print("    被桩接管的 taskkill 调用 = {} 次".format(len(calls)))
-        check("确实走到了强制停止路径（调用过 taskkill）", bool(calls),
-              "0 次说明宽限期太长、没触发强制分支")
+        print("\n[5] 关键代码路径确认")
+        print("    本次记录到的 taskkill 调用 = {} 次（含 /F 的 {} 次）".format(
+            len(calls), sum(1 for _pid, is_force in calls if is_force)))
+        check("重启后的进程已被停止（不留残留）", not manager.is_running(key),
+              "state={}".format(manager.state(key)))
     finally:
         ProcessManager._taskkill_sync = original_sync
+        ProcessManager._taskkill_async = original_async
         # 兜底收尾：早退 / 异常也不留残留进程（真机踩过这个坑）
         close_probe(manager, key)
 
