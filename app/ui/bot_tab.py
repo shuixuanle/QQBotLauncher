@@ -1165,16 +1165,25 @@ class BotTab(QWidget):
         （旧控件 deleteLater()），控件一销毁文本就没了 —— 真机反馈的
         "切换日志区布局时日志内容消失"就是这个原因。
 
+        抓的是 ``view.raw_text()``（**含 ANSI 序列的原文**）：新窗格拿到原文后
+        会重新解析、按当前主题上色，于是连颜色一起还原；取不到原文的旧控件
+        退回 ``toPlainText()`` —— 颜色没了，但文字不丢。
+
         返回 {manager_key: (文本, 行数)}；读不到文本的窗格不入快照。
         """
         snapshot = {}
         for key, view in list(getattr(self, "_views", {}).items()):
+            text = ""
             try:
-                editor = view.editor
-                text = editor.toPlainText()
+                text = view.raw_text()
             except (RuntimeError, AttributeError):
-                # 控件已被销毁（切换过快时会遇到）：跳过，不影响其它窗格
-                continue
+                text = ""
+            if not text:
+                try:
+                    text = view.editor.toPlainText()
+                except (RuntimeError, AttributeError):
+                    # 控件已被销毁（切换过快时会遇到）：跳过，不影响其它窗格
+                    continue
             if text:
                 snapshot[key] = (text, int(getattr(view, "_line_count", 0)))
         return snapshot
@@ -1182,8 +1191,8 @@ class BotTab(QWidget):
     def _restore_log_texts(self, snapshot: dict) -> None:
         """把 :meth:`_capture_log_texts` 的快照灌回新建的窗格。
 
-        用 ``setPlainText`` 而不是 ``append_log``：快照本身已经是完整文本
-        （含结尾换行），再逐行 append 会多出空行，还会逐行触发滚动与计数。
+        走 ``load_raw_text()`` 而不是 ``setPlainText()``：前者会重新跑一遍 ANSI
+        解析（颜色跟着回来），且不额外补换行 —— 快照本身已经是完整文本。
         同时把 auto_scroll 恢复到"贴底"状态，符合"切完布局看到最新输出"的预期。
         """
         if not snapshot:
@@ -1194,10 +1203,7 @@ class BotTab(QWidget):
                 # 该程序在新布局里没有窗格（例如改成单窗格布局）：留给 _pending_logs
                 continue
             try:
-                editor = view.editor
-                previous = editor.blockSignals(True)
-                editor.setPlainText(text)
-                editor.blockSignals(previous)
+                view.load_raw_text(text)
                 # 行数计数与控件内部状态跟着对齐（否则状态栏会显示 0 行）
                 view._line_count = max(int(line_count), text.count("\n"))
                 try:

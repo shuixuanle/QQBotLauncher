@@ -10,7 +10,12 @@
 4. 追加时使用规范化的 \\n，避免 Windows 上出现空行翻倍。
 5. 自动滚动：默认贴在底部；用户手动向上翻看历史时会自动暂停跟随，
    重新滚到底部即恢复（工具栏里也有开关）。
-6. 不依赖 app.config / app.process_manager，可单独实例化使用：
+6. **还原终端颜色**：机器人往往往管道里也写 ANSI 转义序列，日志区以前会
+   原样显示成 `←[32;20m…←[0m`。现在由 `app/ansi.py` 解析成"文字 + 样式"，
+   这里按主题上色 —— 具体颜色由 `theme.ansi_color()` 给（深浅两套色板），
+   终端里什么样，这里基本就什么样。同时保留一份**含序列的原文**，
+   换主题 / 切布局时用它重画，颜色不会跟着旧主题留下来。
+7. 不依赖 app.config / app.process_manager，可单独实例化使用：
        widget = ProgramWidget("主程序", "主程序", r"D:\\bots\\example")
        widget.append_log("启动完成")
 """
@@ -23,10 +28,13 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import (
+    QColor,
     QDesktopServices,
     QFont,
+    QFontMetricsF,
     QGuiApplication,
     QPalette,
+    QTextCharFormat,
     QTextCursor,
 )
 from PyQt6.QtWidgets import (
@@ -41,6 +49,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.ansi import AnsiParser, AnsiStyle, has_ansi  # noqa: E402
 from app.ui import theme as theme_tokens  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -108,6 +117,26 @@ def normalize_log_text(text: object) -> str:
     return text + "\n"
 
 
+def normalize_raw_text(text: object) -> str:
+    """"搬运级"规范化：解码 + 统一换行，**不**补结尾换行、不删结尾空行。
+
+    与 :func:`normalize_log_text` 的分工：
+      · normalize_log_text 处理"新来的一块输出"—— 要保证以换行结尾（见上面的说明）；
+      · 本函数处理"整段原文搬回来"（布局切换时的重建）—— 原文可能正好停在半行上，
+        照原样放回去，接下来的输出才能接着那一行往下写。
+    """
+    if text is None:
+        return ""
+    if isinstance(text, bytes):
+        try:
+            text = text.decode("utf-8")
+        except UnicodeDecodeError:
+            text = text.decode("gbk", errors="replace")
+    if not isinstance(text, str):
+        text = str(text)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def monospace_font(point_size: int = 9) -> QFont:
     """构造一个可用的等宽字体。"""
     app = QApplication.instance()
@@ -160,6 +189,12 @@ class ProgramWidget(QWidget):
         self._max_lines = max(50, int(max_lines))
         self._auto_scroll = True
         self._line_count = 0
+        #: ANSI 解析器（**跨块保留状态**：序列可能被 QProcess 从中间切开，
+        #: 颜色也可能跨行延续 —— 终端就是这样）
+        self._ansi = AnsiParser()
+        #: 含转义序列的原文，只留最近 _max_lines 行（换主题/切布局时重画用）
+        self._raw_text = ""
+        self._raw_lines = 0
 
         self._build_ui(show_toolbar)
         self._apply_style()
@@ -264,6 +299,7 @@ class ProgramWidget(QWidget):
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.editor.setMaximumBlockCount(self._max_lines)
         self.editor.setFont(monospace_font(9))
+        self._apply_tab_stops()
         self.editor.setPlaceholderText("（暂无日志输出）")
         self.editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.editor.setMinimumHeight(MIN_EDITOR_HEIGHT)
@@ -349,10 +385,35 @@ class ProgramWidget(QWidget):
         self.count_label.setStyleSheet(muted)
 
     def apply_theme(self) -> None:
-        """主题变化时重新套用样式（由主窗口在切换/系统变化时调用）。"""
+        """主题变化时重新套用样式（由主窗口在切换/系统变化时调用）。
+
+        日志里可能带 ANSI 颜色 —— 那些颜色是**按旧主题**选的（深色下配的亮黄
+        亮白挪到浅色底上根本看不见），所以有颜色的日志要用新色板重画一遍；
+        纯文本日志没有颜色，直接跳过（省一次全量重绘）。
+        """
         try:
             self._apply_style()
         except RuntimeError:
+            return
+        self._rerender_if_colored()
+
+    def _rerender_if_colored(self) -> None:
+        """用当前主题把日志重画一遍（滚动位置按比例还原）。"""
+        if not has_ansi(self._raw_text):
+            return
+        try:
+            scrollbar = self.editor.verticalScrollBar()
+            maximum = scrollbar.maximum()
+            ratio = (scrollbar.value() / float(maximum)) if maximum > 0 else 1.0
+            raw = self._raw_text
+            self.editor.clear()
+            self._ansi.reset()
+            self._raw_text = ""
+            self._raw_lines = 0
+            self._remember_raw(raw)
+            self._write_runs(raw)
+            scrollbar.setValue(int(round(ratio * scrollbar.maximum())))
+        except (RuntimeError, AttributeError):
             pass
 
     # ------------------------------------------------------------------
@@ -366,6 +427,9 @@ class ProgramWidget(QWidget):
             manager.output_text.connect(
                 lambda key, chunk, channel: widget.append_log(chunk)
             )
+
+        文本里带 ANSI 转义序列时（机器人程序很常见）会按终端颜色上色，
+        序列本身不会出现在界面上。
         """
         content = normalize_log_text(text)
         if not content:
@@ -377,9 +441,8 @@ class ProgramWidget(QWidget):
         scrollbar = self.editor.verticalScrollBar()
         previous = scrollbar.value()
 
-        cursor = self.editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertText(content)
+        self._remember_raw(content)     # 先留原文（换主题时要靠它重画）
+        self._write_runs(content)
 
         self._line_count += content.count("\n")
         self._update_count_label()
@@ -397,9 +460,113 @@ class ProgramWidget(QWidget):
     def clear_log(self) -> None:
         """清空日志显示与行数统计。"""
         self.editor.clear()
+        self._ansi.reset()
+        self._raw_text = ""
+        self._raw_lines = 0
         self._line_count = 0
         self._update_count_label()
         self.logCleared.emit()
+
+    # ------------------------------------------------------------------
+    # 原始日志（含 ANSI 序列）：换主题 / 切布局时重建
+    # ------------------------------------------------------------------
+
+    def raw_text(self) -> str:
+        """返回**含 ANSI 序列**的原始日志（最近 max_lines 行）。
+
+        切布局时窗格会被重建，只有把原文交出去，新窗格才能连颜色一起还原。
+        """
+        return self._raw_text
+
+    def load_raw_text(self, text: object) -> None:
+        """用原始日志**重建**整个日志区（重新解析 ANSI、重新按当前主题上色）。"""
+        raw = normalize_raw_text(text)
+        self.editor.clear()
+        self._ansi.reset()
+        self._raw_text = ""
+        self._raw_lines = 0
+        self._line_count = 0
+        if raw:
+            self._remember_raw(raw)
+            self._write_runs(raw)
+            self._line_count = raw.count("\n")
+        self._update_count_label()
+
+    def _remember_raw(self, content: str) -> None:
+        """记住含序列的原文，并裁掉超出 max_lines 的最旧部分。
+
+        日志区本来就只显示 max_lines 行，再往上留着只是白占内存；
+        裁剪点固定在换行处，半截序列只会出现在**结尾**，重画时被解析器自然忽略。
+        """
+        self._raw_text += content
+        self._raw_lines += content.count("\n")
+        self._trim_raw()
+
+    def _trim_raw(self) -> None:
+        """把原文缓存裁到 max_lines 行以内（按换行切，不切碎行）。"""
+        if self._raw_lines <= self._max_lines:
+            return
+        drop = self._raw_lines - self._max_lines
+        index = 0
+        for _ in range(drop):
+            found = self._raw_text.find("\n", index)
+            if found < 0:
+                break
+            index = found + 1
+        self._raw_text = self._raw_text[index:]
+        self._raw_lines -= drop
+
+    def _write_runs(self, content: str) -> None:
+        """把一块文本写进日志区：含 ANSI 就按片段上色，否则走纯文本快速路径。"""
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not has_ansi(content) and not self._ansi.pending:
+            cursor.insertText(content)
+            return
+        for part, style in self._ansi.feed(content):
+            if not part:
+                continue
+            if style.is_plain():
+                cursor.insertText(part)
+            else:
+                cursor.insertText(part, self._format_for(style))
+
+    def _format_for(self, style: AnsiStyle) -> QTextCharFormat:
+        """ANSI 样式 → QTextCharFormat（颜色全部来自 theme，深浅各一套）。"""
+        fmt = QTextCharFormat()
+        base_bg, base_fg = theme_tokens.log_colors(self)
+        fg = theme_tokens.ansi_color(style.fg, self) if style.fg is not None else ""
+        bg = theme_tokens.ansi_color(style.bg, self) if style.bg is not None else ""
+        if style.inverse:
+            # 反显：前景背景对调；没显式给的那一半用日志区的默认色补上
+            fg, bg = (bg or base_bg), (fg or base_fg)
+        if style.faint and fg:
+            fg = theme_tokens.mix_colors(fg, base_bg, 0.45)
+        if fg:
+            fmt.setForeground(QColor(fg))
+        if bg:
+            fmt.setBackground(QColor(bg))
+        if style.bold:
+            fmt.setFontWeight(QFont.Weight.Bold)
+        if style.italic:
+            fmt.setFontItalic(True)
+        if style.underline:
+            fmt.setFontUnderline(True)
+        return fmt
+
+    def _apply_tab_stops(self) -> None:
+        """把制表符宽度对齐成"8 个等宽字符"（终端的默认值）。
+
+        QPlainTextEdit 默认按 80 像素算 tab，和等宽字体的 8 字符宽度不一致，
+        于是终端里对齐的列（日志的时间戳/级别）在日志区会错位。
+        """
+        try:
+            metrics = QFontMetricsF(self.editor.font())
+            width = metrics.horizontalAdvance(" ")
+            if width > 0:
+                self.editor.setTabStopDistance(width * 8)
+        except (AttributeError, TypeError, RuntimeError):
+            pass
 
     def copy_all(self) -> None:
         """把全部日志复制到剪贴板。"""
@@ -460,6 +627,7 @@ class ProgramWidget(QWidget):
         """调整最大保留行数。"""
         self._max_lines = max(50, int(max_lines))
         self.editor.setMaximumBlockCount(self._max_lines)
+        self._trim_raw()          # 原文缓存跟着收紧，别留着已经不会显示的内容
 
     def max_lines(self) -> int:
         """返回最大保留行数。"""
@@ -499,6 +667,7 @@ class ProgramWidget(QWidget):
     def set_monospace_size(self, point_size: int) -> None:
         """调整日志字号。"""
         self.editor.setFont(monospace_font(max(6, int(point_size))))
+        self._apply_tab_stops()
 
     # ------------------------------------------------------------------
     # 内部实现
@@ -566,8 +735,36 @@ def _selftest() -> int:
     assert "\r" not in text, "不应残留回车符"
     assert text.endswith("被当作换行\n")
 
+    # --- ANSI：真机日志里的两种序列（INFO 绿色 / DEBUG 残缺扩展色）---
+    info = "\x1b[32;20m10-02 13:22:52 [INFO] 插件已加载\x1b[0m\n"
+    debug = "\x1b[38;20m10-02 13:22:53 [DEBUG] 群相关事件\x1b[0m\n"
+    widget.append_log(info)
+    widget.append_log(debug)
+    shown = widget.text()
+    assert "\x1b" not in shown, "转义序列不该出现在界面上"
+    assert "10-02 13:22:52 [INFO] 插件已加载" in shown
+    assert "\x1b[32;20m" not in shown and "\x1b[0m" not in shown
+    assert widget.raw_text().count("\x1b") >= 4, "原文里要保留序列（换主题重画用）"
+    print("ANSI：界面文字 =", repr(shown.splitlines()[-2]))
+
+    # 跨块切开的序列也要认（QProcess 会随机切块）
     widget.clear_log()
-    assert widget.is_empty() and widget.line_count() == 0
+    widget.append_log("\x1b[3")
+    widget.append_log("1m红色文字\x1b[0m\n")
+    assert widget.text().strip() == "红色文字", repr(widget.text())
+
+    # 换主题要重画（有颜色时才重画，纯文本不折腾）
+    widget.apply_theme()
+    assert widget.text().strip() == "红色文字", repr(widget.text())
+
+    # 重建：布局切换时把原文灌回来，颜色一起还原
+    widget.load_raw_text("\x1b[32m绿\x1b[0m + \x1b[31m红\x1b[0m\n")
+    assert widget.text().strip() == "绿 + 红", repr(widget.text())
+    assert widget.line_count() == 1, widget.line_count()
+
+    widget.clear_log()
+    assert widget.raw_text() == "" and widget.line_count() == 0, "清空要连原文一起清"
+    assert widget.is_empty()
 
     widget.set_status_text("运行中（PID 1234）", theme_tokens.status_color("running"))
     widget.set_max_lines(100)

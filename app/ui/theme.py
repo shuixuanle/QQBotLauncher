@@ -120,6 +120,35 @@ LOG_LIGHT_TEXT = "#1f1f1f"
 LOG_LIGHT_BORDER = "#c6c3b8"
 LOG_LIGHT_SELECTION = "#2f6fb5"
 
+#: 日志区还原终端颜色用的 ANSI 16 色（顺序就是 ANSI 的 0-15：
+#: 前 8 个基础色 黑红绿黄蓝品红青白，后 8 个是对应的亮色）。
+#:
+#: 两套的目标不一样，别把它们改成同一份：
+#:   · **深色**照搬 Windows Terminal 的 Campbell 配色 —— 用户在终端里看到什么色，
+#:     日志区就是什么色（真机日志里 `ESC[32m` 的 INFO 行两边都是绿色）；
+#:   · **浅色**必须在 `#f0efe9` 上读得清，所以整体压暗：终端里的亮白 #f2f2f2、
+#:     亮黄 #f9f1a5 放到浅底上等于隐形，这里换成深灰 / 深橄榄黄。
+ANSI_DARK_COLORS: Tuple[str, ...] = (
+    "#0c0c0c", "#c50f1f", "#13a10e", "#c19c00",
+    "#0037da", "#881798", "#3a96dd", "#cccccc",
+    "#767676", "#e74856", "#16c60c", "#f9f1a5",
+    "#3b78ff", "#b4009e", "#61d6d6", "#f2f2f2",
+)
+
+ANSI_LIGHT_COLORS: Tuple[str, ...] = (
+    "#1f1f1f", "#b91c1c", "#0b6b0b", "#8a5a00",
+    "#1d4ed8", "#8b1a8b", "#0e7490", "#6b6b6b",
+    "#5a5a5a", "#d13438", "#107c10", "#9a6700",
+    "#2563eb", "#a21caf", "#0891b2", "#3f3f3f",
+)
+
+#: 浅色底上"太亮就压暗"的亮度阈值；深色底上"太暗就提亮"的阈值。
+ANSI_LIGHT_MAX_LUMA = 0.62
+ANSI_DARK_MIN_LUMA = 0.10
+
+#: xterm 256 色里 6×6×6 色立方用的六档分量
+ANSI_CUBE_LEVELS: Tuple[int, ...] = (0, 95, 135, 175, 215, 255)
+
 #: 选中项文字色 / 日志区禁用文字色
 HIGHLIGHTED_TEXT = "#ffffff"
 DISABLED_LOG_TEXT = "#9a9a9a"
@@ -601,6 +630,139 @@ def status_color(key: object, default: str = COLOR_IDLE) -> str:
 def status_colors() -> Dict[str, str]:
     """状态色表的副本（供各模块建立自己的映射）。"""
     return dict(STATUS_COLORS)
+
+
+# ---------------------------------------------------------------------------
+# 日志区还原终端颜色（ANSI）
+# ---------------------------------------------------------------------------
+
+def log_colors(widget: Optional[QWidget] = None) -> Tuple[str, str]:
+    """日志区当前的 (底色, 文字色)。"""
+    if is_dark(widget):
+        return LOG_DARK_BG, LOG_DARK_TEXT
+    return LOG_LIGHT_BG, LOG_LIGHT_TEXT
+
+
+def ansi_palette(widget: Optional[QWidget] = None) -> Tuple[str, ...]:
+    """当前主题的 ANSI 16 色。"""
+    return ANSI_DARK_COLORS if is_dark(widget) else ANSI_LIGHT_COLORS
+
+
+def ansi_index_rgb(index: int) -> Tuple[int, int, int]:
+    """xterm 256 色索引 → RGB（纯函数，方便单测）。
+
+    16-231 是 6×6×6 色立方，232-255 是 24 级灰阶；
+    0-15 是"基础 16 色"，这里给一份标准 xterm 值兜底
+    （实际会先查主题色板，走不到这里）。
+    """
+    try:
+        value = max(0, min(255, int(index)))
+    except (TypeError, ValueError):
+        return (0, 0, 0)
+    if value < 16:
+        base = (
+            (0, 0, 0), (205, 0, 0), (0, 205, 0), (205, 205, 0),
+            (0, 0, 238), (205, 0, 205), (0, 205, 205), (229, 229, 229),
+            (127, 127, 127), (255, 0, 0), (0, 255, 0), (255, 255, 0),
+            (92, 92, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255),
+        )
+        return base[value]
+    if value < 232:
+        value -= 16
+        return (
+            ANSI_CUBE_LEVELS[value // 36],
+            ANSI_CUBE_LEVELS[(value // 6) % 6],
+            ANSI_CUBE_LEVELS[value % 6],
+        )
+    gray = 8 + (value - 232) * 10
+    return (gray, gray, gray)
+
+
+def color_luminance(rgb: Tuple[int, int, int]) -> float:
+    """近似相对亮度（0=黑，1=白）。不做 sRGB 线性化 —— 这里只用来判断"太亮/太暗"。"""
+    red, green, blue = (max(0, min(255, int(v))) / 255.0 for v in rgb)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def readable_rgb(rgb: Tuple[int, int, int], dark: bool) -> Tuple[int, int, int]:
+    """把一个颜色调整到"当前日志底色上读得清"。
+
+    终端色板默认是给黑底设计的：`ESC[97m`（亮白）在浅色日志区上完全看不见，
+    而 `ESC[30m`（黑）在深色日志区上同样看不见。这里按底色做单向修正：
+
+      · 浅色底：亮度超过阈值 → 逐步压暗（往黑色靠）；
+      · 深色底：亮度低于阈值 → 逐步提亮（往白色靠）。
+
+    只动"读不清"的颜色，正常颜色原样保留 —— 所以终端里是什么观感，日志区基本一致。
+    """
+    values = [max(0, min(255, int(v))) for v in rgb]
+    if dark:
+        steps = 0
+        while color_luminance(tuple(values)) < ANSI_DARK_MIN_LUMA and steps < 8:
+            values = [int(round(v + (255 - v) * 0.35)) for v in values]
+            steps += 1
+    else:
+        steps = 0
+        while color_luminance(tuple(values)) > ANSI_LIGHT_MAX_LUMA and steps < 8:
+            values = [int(round(v * 0.72)) for v in values]
+            steps += 1
+    return (values[0], values[1], values[2])
+
+
+def _hex_color(rgb: Tuple[int, int, int]) -> str:
+    """(r, g, b) → `#rrggbb`。"""
+    return "#{:02x}{:02x}{:02x}".format(*[max(0, min(255, int(v))) for v in rgb])
+
+
+def ansi_color(value: object, widget: Optional[QWidget] = None) -> str:
+    """把 `app.ansi.AnsiColor` 换成当前主题下的十六进制颜色。
+
+    认不出来 / 传 None 时返回空串，调用方按"用日志区默认文字色"处理。
+    这里不 import app.ansi：只需要对象有 `kind` / `index` / `rgb` 三个属性，
+    这样 theme 依旧只依赖 PyQt6。
+    """
+    if value is None:
+        return ""
+    kind = str(getattr(value, "kind", "") or "")
+    dark = is_dark(widget)
+    if kind == "index":
+        try:
+            index = int(getattr(value, "index", -1))
+        except (TypeError, ValueError):
+            return ""
+        if 0 <= index < 16:
+            return ansi_palette(widget)[index]
+        if 0 <= index < 256:
+            return _hex_color(readable_rgb(ansi_index_rgb(index), dark))
+        return ""
+    if kind == "rgb":
+        raw = getattr(value, "rgb", None) or (0, 0, 0)
+        try:
+            rgb = (int(raw[0]), int(raw[1]), int(raw[2]))
+        except (TypeError, ValueError, IndexError):
+            return ""
+        return _hex_color(readable_rgb(rgb, dark))
+    return ""
+
+
+def mix_colors(first: str, second: str, ratio: float) -> str:
+    """把两个 `#rrggbb` 按比例混合（ratio=0 取 first，=1 取 second）。
+
+    用途：ANSI 的"暗淡"（`ESC[2m`）在日志区表现为"文字色往底色靠一点"。
+    """
+    try:
+        ratio = max(0.0, min(1.0, float(ratio)))
+        one = QColor(first)
+        two = QColor(second)
+        if not one.isValid() or not two.isValid():
+            return first
+        return _hex_color((
+            one.red() + (two.red() - one.red()) * ratio,
+            one.green() + (two.green() - one.green()) * ratio,
+            one.blue() + (two.blue() - one.blue()) * ratio,
+        ))
+    except (TypeError, ValueError, RuntimeError):
+        return first
 
 
 def focus_border_color(widget: Optional[QWidget] = None) -> str:
