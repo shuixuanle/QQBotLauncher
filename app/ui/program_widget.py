@@ -517,21 +517,26 @@ class ProgramWidget(QWidget):
         self._raw_lines -= drop
 
     def _write_runs(self, content: str) -> None:
-        """把一块文本写进日志区：含 ANSI 就按片段上色，否则走纯文本快速路径。
+        """把一块文本写进日志区：**每一段都带完整格式**写入，不靠 Qt 的继承。
 
-        **上色失败绝不允许影响"文字写进去"**（真机事故，2026-10-02）：
-        当时 `_format_for()` 里一个解包错误抛出 `ValueError`，而调用链是
-        `output_text` 信号 → `append_log` → 这里，属于 **Qt 信号槽**；
-        PyQt6 对槽里的未捕获异常会直接终止进程 —— 用户看到的就是"启动实例后闪退"，
-        界面上不给任何提示。显示层的问题不该把整个启动管理器带走，所以：
+        为什么连纯文本段也要给格式（真机验证，2026-10-02）：
+        Qt 里"没有设置"的字符属性会**继承上一段文字**，而 `ESC[0m`（恢复默认）
+        在我们这边就是"结束彩色段、后面按纯文本写" —— 如果那段不显式给默认色，
+        它就会继续用上一段的颜色。真机表现：
+            `ESC[32m绿色一行ESC[0m` 之后紧接着的普通行，整行都是绿的。
+        所以纯文本段也走 `_format_for()`（它会把 前景/背景/粗体/斜体/下划线 写全）。
 
-          · 解析器抛异常 → 重置解析状态，退回"去掉序列的纯文本"；
-          · 上色抛异常 → 这一片段用纯文本写进去（颜色没了，字还在）。
+        另一条底线：**上色失败绝不允许影响"文字写进去"**（真机事故，2026-10-02）：
+        调用链是 `output_text` 信号 → `append_log` → 这里，属于 **Qt 信号槽**；
+        PyQt6 对槽里的未捕获异常会直接终止进程 —— 用户看到的就是"启动实例后闪退"。
+        显示层的问题不该把整个启动管理器带走，所以解析/上色都各有兜底。
         """
         cursor = self.editor.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
+
         if not has_ansi(content) and not self._ansi.pending:
-            cursor.insertText(content)
+            # 快速路径：这一段没有序列，但**当前样式**可能还带着颜色（跨块延续）
+            self._insert(cursor, content, self._ansi.style)
             return
 
         try:
@@ -541,18 +546,26 @@ class ProgramWidget(QWidget):
             runs = [(strip_ansi(content), AnsiStyle())]
 
         for part, style in runs:
-            if not part:
-                continue
-            if style.is_plain():
-                cursor.insertText(part)
-                continue
-            try:
-                cursor.insertText(part, self._format_for(style))
-            except Exception:  # noqa: BLE001 - 同上：颜色没了也要把文字留下
-                cursor.insertText(part)
+            if part:
+                self._insert(cursor, part, style)
+
+    def _insert(self, cursor: QTextCursor, text: str, style: AnsiStyle) -> None:
+        """按样式插入一段文字；上色出任何问题都退回默认格式（字必须留下）。"""
+        try:
+            cursor.insertText(text, self._format_for(style))
+        except Exception:  # noqa: BLE001 - 同上：颜色没了也要把文字写进去
+            cursor.insertText(text, self._plain_format())
+
+    def _plain_format(self) -> QTextCharFormat:
+        """默认格式（日志区文字色 + 底色）。"""
+        return self._format_for(AnsiStyle())
 
     def _format_for(self, style: AnsiStyle) -> QTextCharFormat:
-        """ANSI 样式 → QTextCharFormat（颜色全部来自 theme，深浅各一套）。"""
+        """ANSI 样式 → QTextCharFormat（颜色全部来自 theme，深浅各一套）。
+
+        **每个属性都写全**：Qt 里没设的属性会继承上一段文字，少写一个就会出现
+        "`ESC[0m` 之后颜色褪不掉"或"上一行的反显背景跟着跑"。
+        """
         fmt = QTextCharFormat()
         # theme.log_colors() 返回的是**四色**：(底色, 文字色, 边框, 选中背景)，
         # 这里只用前两个 —— 别再写 `a, b = log_colors(...)`，
@@ -566,16 +579,11 @@ class ProgramWidget(QWidget):
             fg, bg = (bg or base_bg), (fg or base_fg)
         if style.faint and fg:
             fg = theme_tokens.mix_colors(fg, base_bg, 0.45)
-        if fg:
-            fmt.setForeground(QColor(fg))
-        if bg:
-            fmt.setBackground(QColor(bg))
-        if style.bold:
-            fmt.setFontWeight(QFont.Weight.Bold)
-        if style.italic:
-            fmt.setFontItalic(True)
-        if style.underline:
-            fmt.setFontUnderline(True)
+        fmt.setForeground(QColor(fg or base_fg))
+        fmt.setBackground(QColor(bg or base_bg))
+        fmt.setFontWeight(QFont.Weight.Bold if style.bold else QFont.Weight.Normal)
+        fmt.setFontItalic(bool(style.italic))
+        fmt.setFontUnderline(bool(style.underline))
         return fmt
 
     def _apply_tab_stops(self) -> None:

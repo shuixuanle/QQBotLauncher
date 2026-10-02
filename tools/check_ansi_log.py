@@ -268,7 +268,15 @@ def main() -> int:
     if write_runs is not None:
         names = calls_in(write_runs)
         check("_write_runs 调用解析器 feed()", "feed" in names, str(sorted(names)))
-        check("_write_runs 用 _format_for 造格式", "_format_for" in names, str(sorted(names)))
+        check("_write_runs 通过 _insert 落笔（每段都带格式）", "_insert" in names, str(sorted(names)))
+
+    insert = find_function(tree, "_insert")
+    check("找得到 _insert", insert is not None)
+    if insert is not None:
+        names = calls_in(insert)
+        check("_insert 用 _format_for 造格式", "_format_for" in names, str(sorted(names)))
+        check("_insert 有兜底纯文本路径（_plain_format）", "_plain_format" in names,
+              str(sorted(names)))
 
     format_for = find_function(tree, "_format_for")
     check("找得到 _format_for", format_for is not None)

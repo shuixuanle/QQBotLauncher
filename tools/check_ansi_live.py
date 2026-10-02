@@ -93,10 +93,13 @@ def main() -> int:
 
     shown = widget.text()
     check("界面上没有转义序列", "\x1b" not in shown, repr(shown[:60]))
-    check("文字内容完整", "10-02 13:22:52 [INFO] 插件已加载" in shown
-          and "10-02 13:22:53 [DEBUG] 群相关事件" in shown)
+    # 注意：断言里的文字必须与 INFO_LINE / DEBUG_LINE **一模一样**（写成缩写就永远不成立）
+    check("文字内容完整", "atri-bot.PluginLoader | 插件已加载" in shown
+          and "atri-bot.whitelist | 群相关事件" in shown, repr(shown[:70]))
 
     print("\n[2] 颜色真的写进文档了（不是「看着像」）")
+    # 注意：theme.log_colors() 返回四色，这里只取前两个（底色, 文字色）
+    _base_bg, base_fg = theme_tokens.log_colors(widget)[:2]
     palette = theme_tokens.ansi_palette(widget)
     expect_green = palette[2]
     info_frags = line_fragments(widget, 0)
@@ -105,30 +108,64 @@ def main() -> int:
     check("INFO 行的颜色 = 主题色板里的绿色（32）", expect_green in info_colors,
           "期望 {} 实际 {}".format(expect_green, sorted(info_colors)))
 
+    # 残缺的 38;20 与"行尾 ESC[0m 之后的文字"都必须是**默认文字色**，不能是绿色。
+    # （这里曾经是红的：Qt 里没设的属性会继承上一段，恢复默认的那段得显式给颜色。）
     debug_colors = {color_of(fmt) for _text, fmt in line_fragments(widget, 1)}
-    check("残缺的 38;20 不上色（DEBUG 行保持默认色）",
-          all(not c for c in debug_colors), str(sorted(debug_colors)))
+    check("残缺的 38;20 不上色：DEBUG 行 = 默认文字色",
+          debug_colors == {base_fg},
+          "期望 {} 实际 {}".format(base_fg, sorted(debug_colors)))
+
+    print("\n[2b] 紧跟彩色行的普通行不许「继承」颜色")
+    widget.append_log("10-02 13:23:00 [INFO] 这一行没有任何序列\n")
+    plain_colors = {color_of(fmt) for _text, fmt in line_fragments(widget, 2)}
+    check("普通行 = 默认文字色（不继承上一行的绿）", plain_colors == {base_fg},
+          "期望 {} 实际 {}".format(base_fg, sorted(plain_colors)))
 
     print("\n[3] 原文、清空、重建")
     check("原文里保留了序列（换主题要重画）", "\x1b[32;20m" in widget.raw_text())
-    widget.apply_theme()          # 换主题会按新色板重画 —— 这里只要求不炸、文字不丢
-    check("换主题后文字不变", widget.text() == shown, repr(widget.text()[:40]))
+    before = widget.text()
+    widget.apply_theme()          # 换主题会按新色板重画 —— 文字必须一字不差
+    check("换主题后文字不变", widget.text() == before, repr(widget.text()[:40]))
     widget.load_raw_text(INFO_LINE + DEBUG_LINE)
     check("重建后仍然上色", any(color_of(fmt) for _t, fmt in line_fragments(widget, 0)))
     check("重建后没有转义序列", "\x1b" not in widget.text())
     widget.clear_log()
     check("清空连原文一起清", widget.raw_text() == "" and widget.line_count() == 0)
 
-    print("\n[4] 深浅两套主题都要能跑（切主题后取色不能崩）")
-    for dark in (False, True):
+    print("\n[4] 深浅两套主题：真的切过去，颜色真的要跟着变")
+    seen = {}
+    for mode in ("light", "dark"):
         try:
-            theme_tokens.apply_log_palette(widget.editor, dark)
-            theme_tokens.ansi_palette(widget)
+            theme_tokens.apply_theme(app, mode)
+            is_dark_now = theme_tokens.is_dark(widget)
+            colors = theme_tokens.ansi_palette(widget)
             bg, fg = theme_tokens.log_colors(widget)[:2]
-            ok, detail = True, "底色 {} 文字 {}".format(bg, fg)
+            seen[mode] = (colors, bg, fg, is_dark_now)
+            ok = True
+            detail = "is_dark={} 日志底色 {} 文字 {} ANSI绿 {}".format(
+                is_dark_now, bg, fg, colors[2])
         except Exception as exc:  # noqa: BLE001
             ok, detail = False, "{}: {}".format(type(exc).__name__, exc)
-        check("{} 主题下取色正常".format("深色" if dark else "浅色"), ok, detail)
+        check("apply_theme({}) 后取色正常".format(mode), ok, detail)
+
+    if len(seen) == 2:
+        check("深浅两套 ANSI 色板确实不同", seen["light"][0] != seen["dark"][0],
+              "浅 {} / 深 {}".format(seen["light"][0][2], seen["dark"][0][2]))
+        check("深色板绿色 = Windows Terminal 的 #13a10e", seen["dark"][0][2] == "#13a10e",
+              seen["dark"][0][2])
+        check("浅色板绿色 = 压暗后的 #0b6b0b", seen["light"][0][2] == "#0b6b0b",
+              seen["light"][0][2])
+
+        # 每种主题下都真喂一行，确认"同一个 32 在不同主题下取到不同的绿"
+        print("\n[5] 同一个 ESC[32m 在两种主题下渲染成不同的绿")
+        for mode in ("light", "dark"):
+            theme_tokens.apply_theme(app, mode)
+            widget.clear_log()
+            widget.append_log(INFO_LINE)
+            colors = {color_of(fmt) for _t, fmt in line_fragments(widget, 0)}
+            expect = theme_tokens.ansi_palette(widget)[2]
+            check("{} 主题下 INFO 行的颜色 = {}".format(mode, expect),
+                  colors == {expect}, str(sorted(colors)))
 
     widget.close()
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
