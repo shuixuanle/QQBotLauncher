@@ -152,7 +152,8 @@ def main() -> int:
     check("scripts\\README.md 存在", readme.exists())
     if readme.exists():
         body = readme.read_text(encoding="utf-8")
-        for keyword in ("net session", "-Verb RunAs", "CRLF", "cmd.exe /c"):
+        for keyword in ("net session", "-Verb RunAs", "CRLF", "cmd.exe /c",
+                        "hydrant_dir.txt"):
             check("  README 里讲了 {}".format(keyword), keyword in body)
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))

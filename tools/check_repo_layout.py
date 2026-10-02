@@ -69,6 +69,7 @@ ALLOWED_TOOLS = {
     "palette_studio.py",     # 配色工作台（命令行入口）
     "build_exe.py",          # 一键打包
     "diagnose_temp.py",      # exe 临时目录诊断
+    "find_hydrant.py",       # 找消防栓编译产物目录，并写进 scripts/hydrant_dir.txt
     "git_push.py",           # 推送助手
     "_theme_probe.py",       # 检查器共享：抠 theme.py 的纯函数
     "_detach_probe.py",      # 夹具：脱离启动探针（check_alloc_console_live 用）

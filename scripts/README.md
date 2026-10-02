@@ -40,6 +40,22 @@ rem 这里放真正要跑的命令
 
 几个踩过的坑，抄的时候注意：
 
+### 脚本找不到 bot 目录时（最省事的修法）
+
+启动脚本按这个顺序找编译产物目录：
+
+1. **`scripts\hydrant_dir.txt`** —— 里面就一行路径，例如
+   `D:\BOTBENTI\xiaofangshuan\OsuQqBotForNewbieGroup\Bleatingsheep.NewHydrant.Bot\bin\Debug\net10.0`
+   （可以写目录，也可以写 `.dll` / `.exe` 的完整路径；带引号、末尾多空格都能认）
+2. 环境变量 `QQBOT_HYDRANT_DIR`（管理器里给该程序加一条环境变量即可）
+3. 从脚本所在目录往上 5 层找 `<上级>\*.Bot*\bin\Debug\net*`
+4. 脚本里那行 `EDIT THIS LINE`
+
+> `hydrant_dir.txt` 带个人路径，所以 `.gitignore` 里忽略了它，不进仓库。
+> 懒得翻目录：`python tools\find_hydrant.py --write` 会自己找并写好这一行。
+
+### 几个踩过的坑
+
 | 坑 | 说明 |
 | --- | --- |
 | 提权后**当前目录**会变成 `C:\Windows\System32` | 先 `cd /d "%~dp0"` 再启动自己 |
