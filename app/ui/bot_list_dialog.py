@@ -135,18 +135,6 @@ def row_values(status: BotStatus, sort_by_state: bool = False) -> List[str]:
     ]
 
 
-def row_sort_keys(status: BotStatus, sort_by_state: bool) -> List[Any]:
-    """生成一行的排序键（与 row_values 一一对应）。"""
-    return [
-        (status.name or "").lower(),
-        status_sort_key(status) if sort_by_state else bot_status_text(status),
-        status.running,
-        status.enabled,
-        status.opened,
-        len(status.program_names),
-    ]
-
-
 def programs_summary(status: BotStatus, use_newline: bool = False, limit: int = 24) -> str:
     """把程序列表拼成 "★主程序(运行中), ollama(未运行), …"。
 

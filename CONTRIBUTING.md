@@ -41,7 +41,7 @@ python -c "from PyQt6.QtCore import QT_VERSION_STR; print('PyQt6 Qt', QT_VERSION
 ### 提问前先自查（能省一轮往返）
 
 ```bat
-python tools\run_all_checks.py     :: 27 个静态检查一次跑完
+python tools\run_all_checks.py     :: 28 个静态检查一次跑完
 python main.py --doctor            :: 只做导入与名字体检，不需要图形界面
 python main.py --theme-debug       :: 外观相关问题（打印主题诊断并写 theme_debug.log）
 python main.py --nav-debug         :: 左侧列表相关问题
@@ -101,12 +101,12 @@ UI：合并重复的窗格标题行
 ### 自检（必须全绿）
 
 ```bat
-python tools\run_all_checks.py          :: 一次跑完 27 个检查器
+python tools\run_all_checks.py          :: 一次跑完 28 个检查器
 python tools\run_all_checks.py -v       :: 需要看细节时
 python main.py --selftest               :: GUI 自检（环境与配置摘要）
 ```
 
-27 个检查器各自盯着一个真实踩过的坑，例如：
+28 个检查器各自盯着一个真实踩过的坑，例如：
 
 | 检查器 | 挡住的坑 |
 | --- | --- |
@@ -125,6 +125,24 @@ python main.py --selftest               :: GUI 自检（环境与配置摘要）
 | `check_definition_order.py` | 模块级**先用后定义**（`py_compile` 全绿，`python main.py` 一启动就 NameError） |
 | `check_console_output.py` | 检查器崩在 print 上（中文 Windows 控制台是 cp936，编不出 ▸ ⇄ 这类符号） |
 | `check_command_argv.py` | 给 QProcess 的 argv 里混进引号（`python -c "…"` 的代码被当成字符串字面量，进程秒退、退出码 0） |
+| `check_repo_layout.py` | 仓库又乱回去：根目录冒出杂物、tools/ 里多出来历不明的脚本、生成物没进 .gitignore、README 结构图过期 |
+
+### 仓库布局约定（根目录要干净）
+
+根目录**只放**白名单里的东西（入口脚本、文档、配置样例、`app/ tools/ docs/ scripts/ build/`）。
+加新文件之前先想清楚该放哪：
+
+| 想加的东西 | 放哪 |
+| --- | --- |
+| 新检查器 | `tools/check_xxx.py`（名字必须以 `check_` 开头，不然不会被 `run_all_checks` 跑到） |
+| 检查器共用的夹具 / 工具函数 | `tools/_xxx.py`（下划线开头，不当检查器跑） |
+| 开发期一次性脚本、临时探针 | 本地忽略区（`tools/maintenance/`、`tools/diagnostics/_*.py`），**不要**提交 |
+| 只给自己看的文档 / 截图 | `_local/`（整个目录被忽略） |
+| 使用者要双击的入口 | 根目录（`启动（…）.bat` 这些） |
+
+顺手加的：`tools/check_repo_layout.py` 会盯着这几条 —— 根目录白名单、`tools/` 里每个文件的身份、
+生成物是否被忽略、有没有跟踪 `__pycache__`、README 的「项目结构」是否过期。
+往根目录加东西时，把它加进 `ALLOWED_ROOT` 并写清用途（那一步就是逼自己想一遍）。
 
 ### 修 bug 时建议顺手补一条断言
 

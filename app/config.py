@@ -1137,20 +1137,6 @@ def load_config(path: Optional[Path] = None) -> BotConfig:
     return BotConfig.load(path)
 
 
-def save_config(config: BotConfig, path: Optional[Path] = None) -> bool:
-    """保存配置的快捷函数，返回是否成功。"""
-    ok, _message = config.save(path)
-    return ok
-
-
-def ensure_config_file(path: Optional[Path] = None) -> Path:
-    """确保配置文件存在（不存在则写入默认示例），返回其路径。"""
-    target = Path(path) if path is not None else DEFAULT_CONFIG_PATH
-    if not target.exists():
-        BotConfig.load(target, create_if_missing=True)
-    return target
-
-
 # ---------------------------------------------------------------------------
 # 直接运行时：自检 / 生成默认配置
 # ---------------------------------------------------------------------------

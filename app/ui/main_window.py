@@ -144,8 +144,6 @@ DEFAULT_NAV_WIDTH = 280
 MIN_NAV_WIDTH = 180
 #: 上限：避免记忆里存进一个夸张的宽度（例如窗口曾最大化过）把实例区挤没
 MAX_NAV_WIDTH = 640
-#: 实例区（QStackedWidget）的数据角色：0 为占位页，>=1 为机器人窗口
-PAGE_ROLE_STACK_INDEX = Qt.ItemDataRole.UserRole + 100
 
 def settings_bool(value: object, default: bool = False) -> bool:
     """把 QSettings 读出来的值安全地转成 bool。
@@ -232,18 +230,6 @@ class BotStatusFlags:
     PARTIAL = "partial"
     #: ProcessManager 里表达"未运行"的两种写法，统一归到 STOPPED
     STOPPED_ALIASES = (ProcessManager.STATE_IDLE, ProcessManager.STATE_STOPPED)
-
-
-#: 所有状态（供对话框做筛选/图例）
-BOT_STATUS_VALUES = (
-    BotStatusFlags.RUNNING,
-    BotStatusFlags.PARTIAL,
-    BotStatusFlags.STARTING,
-    BotStatusFlags.STOPPING,
-    BotStatusFlags.STOPPED,
-    BotStatusFlags.FAILED,
-    BotStatusFlags.DISABLED,
-)
 
 
 @dataclass

@@ -112,8 +112,6 @@ LIGHT_DISABLED_TEXT = "#9a9a9a"
 #: 日志区（深色）：深底浅字
 LOG_DARK_BG = "#1e1f22"
 LOG_DARK_TEXT = "#d6d6d6"
-LOG_DARK_BORDER = "#3a3d41"
-LOG_DARK_SELECTION = "#2f6fb5"
 
 #: 日志区（浅色）：**故意与窗口/左栏同色**（`LIGHT_WINDOW` == `#f0efe9`）。
 #:
@@ -123,8 +121,6 @@ LOG_DARK_SELECTION = "#2f6fb5"
 #: ⚠️ 别把它"修"成白色 —— 那不是 bug，是有意为之。
 LOG_LIGHT_BG = "#f0efe9"
 LOG_LIGHT_TEXT = "#1f1f1f"
-LOG_LIGHT_BORDER = "#c6c3b8"
-LOG_LIGHT_SELECTION = "#2f6fb5"
 
 #: 日志区还原终端颜色用的 ANSI 16 色（顺序就是 ANSI 的 0-15：
 #: 前 8 个基础色 黑红绿黄蓝品红青白，后 8 个是对应的亮色）。
@@ -696,11 +692,6 @@ def save_mode(settings: object, mode: object) -> bool:
         return True
     except (AttributeError, TypeError, RuntimeError):
         return False
-
-
-def startup_mode(settings: object = None) -> str:
-    """启动时要用的模式：QSettings 偏好（默认跟随系统）。"""
-    return load_mode(settings, MODE_SYSTEM)
 
 
 # ---------------------------------------------------------------------------
@@ -1363,11 +1354,6 @@ def nav_palette(widget: Optional[QWidget] = None) -> Dict[str, str]:
     }
 
 
-def _disabled_text_color(widget: Optional[QWidget] = None) -> str:
-    """禁用态文字色。"""
-    return role_color("disabled", widget=widget)
-
-
 def log_colors_for(dark: bool) -> Tuple[str, str, str, str]:
     """日志区四色：(背景, 文字, 边框, 选中背景)。
 
@@ -1497,49 +1483,6 @@ def chrome_palette(widget: Optional[QWidget] = None) -> Dict[str, str]:
         "disabled": role_color("disabled", dark=False),
         "tooltip_bg": role_color("base", dark=False),
         "chrome_bg": role_color("window", dark=False),
-    }
-
-
-def _system_chrome_palette(widget: Optional[QWidget] = None) -> Dict[str, str]:
-    """跟随系统模式下的外壳配色：从当前调色板取色，并做对比度兜底（N2.9）。"""
-    try:
-        target = widget if widget is not None else QApplication.instance()
-        palette = target.palette() if target is not None else None
-        if palette is not None:
-            bg = palette.color(QPalette.ColorRole.Window)
-            text = palette.color(QPalette.ColorRole.WindowText)
-            # 对比度不足（例如系统给了深底深字）时，按底色明暗改用黑白
-            if abs(bg.lightness() - text.lightness()) < 60:
-                text = QColor("#1f1f1f") if bg.lightness() >= 128 else QColor("#e8e8e8")
-            base = palette.color(QPalette.ColorRole.Base)
-            mid = palette.color(QPalette.ColorRole.Mid)
-            button = palette.color(QPalette.ColorRole.Button)
-            highlight = palette.color(QPalette.ColorRole.Highlight)
-            highlighted_text = palette.color(QPalette.ColorRole.HighlightedText)
-            if abs(highlight.lightness() - highlighted_text.lightness()) < 40:
-                highlighted_text = QColor("#ffffff")
-            return {
-                "text": text.name(),
-                "muted": text.name(),
-                "button": button.name(),
-                "button_text": text.name(),
-                "border": mid.name(),
-                "hover": base.name(),
-                "sel": highlight.name(),
-                "sel_text": highlighted_text.name(),
-                "disabled": mid.name(),
-                "tooltip_bg": base.name(),
-                "chrome_bg": bg.name(),
-            }
-    except (AttributeError, TypeError, RuntimeError):
-        pass
-    # 取不到任何调色板信息时的最后兜底（浅色一套）
-    return {
-        "text": LIGHT_TEXT, "muted": MUTED_LIGHT, "button": LIGHT_BUTTON,
-        "button_text": LIGHT_TEXT, "border": LIGHT_BORDER,
-        "hover": LIGHT_ALTERNATE, "sel": LIGHT_HIGHLIGHT,
-        "sel_text": LIGHT_HIGHLIGHT_TEXT, "disabled": LIGHT_DISABLED_TEXT,
-        "tooltip_bg": "#fbfaf7", "chrome_bg": LIGHT_WINDOW,
     }
 
 
@@ -1911,23 +1854,6 @@ def pane_qss(widget: Optional[QWidget] = None) -> str:
 def dialog_hint_qss(widget: Optional[QWidget] = None) -> str:
     """对话框里次要说明文字的样式。"""
     return "color: {};".format(muted_text_color(widget))
-
-
-def placeholder_qss(widget: Optional[QWidget] = None) -> str:
-    """空状态占位页的提示文字样式。"""
-    return "color: {};".format(muted_text_color(widget))
-
-
-def style_sheet_for(name: str, widget: Optional[QWidget] = None) -> str:
-    """按名字取样式表（方便统一刷新时遍历）。"""
-    table = {
-        "log": log_editor_qss,
-        "nav": nav_tree_qss,
-        "pane": pane_qss,
-        "muted": dialog_hint_qss,
-    }
-    builder = table.get(str(name or "").strip().lower())
-    return builder(widget) if builder is not None else ""
 
 
 # ---------------------------------------------------------------------------

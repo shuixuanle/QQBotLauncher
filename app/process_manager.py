@@ -60,8 +60,6 @@ JAR_TOKEN = "[LATEST_JAR]"
 #: 兼容写法（与 app.config.LEGACY_JAR_PLACEHOLDERS 保持一致）
 LEGACY_JAR_TOKENS = LEGACY_JAR_PLACEHOLDERS
 
-#: 输出编码探测顺序：先 UTF-8，失败回退 GBK
-ENCODING_PREFERENCE = ("utf-8", "gbk")
 
 #: 单行日志最大长度，超出则截断，避免刷屏卡死 UI
 MAX_LINE_LENGTH = 8192
@@ -1299,11 +1297,6 @@ def stop_bot(
         if manager.is_running(key) and manager.stop(key, timeout_ms=timeout_ms):
             count += 1
     return count
-
-
-def role_label(program: Program) -> str:
-    """角色标签（主程序 / 副程序），供 UI 显示。"""
-    return "主程序" if program.role == ROLE_PRIMARY else "副程序"
 
 
 # ---------------------------------------------------------------------------
