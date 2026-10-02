@@ -105,11 +105,14 @@ tools/diagnostics/启动诊断.vbs
 # scripts/ 里"作者本机专用"的脚本（仓库只保留 scripts/README.md 讲清用途与模板）
 #   · start_hydrant.bat      针对本机布局写的提权启动脚本（路径 / dotnet 版本是本地的）
 #   · README-start_hydrant.md 它的中文说明（模板与踩坑已并进 scripts/README.md）
+#   · hydrant_dir.txt        一行：bot 编译产物目录（带个人路径，不进仓库）
 # 想恢复某个文件到仓库：git add -f <path>
+# 注意：.gitignore **不支持行尾注释** —— 注释必须单独一行，
+#       否则整行（含 # 之后的内容）都会当成匹配模式，等于没写。
 # ---------------------------------------------------------------------------
 scripts/start_hydrant.bat
 scripts/README-start_hydrant.md
-scripts/hydrant_dir.txt   # 一行：bot 编译产物目录（带个人路径，不进仓库）
+scripts/hydrant_dir.txt
 
 # ---------------------------------------------------------------------------
 # 只留给自己看的东西（不进仓库）—— 统一放在 _local/ 里，根目录保持干净

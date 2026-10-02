@@ -199,6 +199,15 @@ def check_ignored() -> None:
     check("README 自身**没有**被忽略（别把正经文件忽略了）",
           not git_ignored("README.md"))
 
+    # .gitignore **不支持行尾注释**：写成 `foo.txt   # 说明` 时，整个字符串
+    # （含 # 之后的内容）都会被当成匹配模式 —— 于是"以为忽略了、其实没忽略"。
+    # 真机就是这么把带个人路径的 scripts/hydrant_dir.txt 提交进去的。
+    inline = [line.strip() for line in (ROOT / ".gitignore").read_text(
+        encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#") and " #" in line]
+    check(".gitignore 里没有行尾注释（有的话那条规则等于没写）", not inline,
+          str(inline[:3]))
+
     print("\n[4] 仓库里没有跟踪缓存文件")
     tracked = git_tracked()
     if tracked is None:
