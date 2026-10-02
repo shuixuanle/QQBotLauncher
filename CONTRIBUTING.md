@@ -41,7 +41,7 @@ python -c "from PyQt6.QtCore import QT_VERSION_STR; print('PyQt6 Qt', QT_VERSION
 ### 提问前先自查（能省一轮往返）
 
 ```bat
-python tools\run_all_checks.py     :: 19 个静态检查一次跑完
+python tools\run_all_checks.py     :: 20 个静态检查一次跑完
 python main.py --doctor            :: 只做导入与名字体检，不需要图形界面
 python main.py --theme-debug       :: 外观相关问题（打印主题诊断并写 theme_debug.log）
 python main.py --nav-debug         :: 左侧列表相关问题
@@ -101,12 +101,12 @@ UI：合并重复的窗格标题行
 ### 自检（必须全绿）
 
 ```bat
-python tools\run_all_checks.py          :: 一次跑完 19 个检查器
+python tools\run_all_checks.py          :: 一次跑完 20 个检查器
 python tools\run_all_checks.py -v       :: 需要看细节时
 python main.py --selftest               :: GUI 自检（环境与配置摘要）
 ```
 
-19 个检查器各自盯着一个真实踩过的坑，例如：
+20 个检查器各自盯着一个真实踩过的坑，例如：
 
 | 检查器 | 挡住的坑 |
 | --- | --- |
@@ -117,6 +117,7 @@ python main.py --selftest               :: GUI 自检（环境与配置摘要）
 | `check_launchers.py` | 启动脚本编码/解释器选择错误 |
 | `check_branch_qss.py` | QSS 花括号未转义导致样式静默失效 |
 | `check_method_decorators.py` | 残留的 `@staticmethod` 导致方法签名错位 |
+| `check_doc_links.py` | README 锚点/截图路径失效（GitHub 上点不动、破图标，没有任何报错） |
 
 ### 修 bug 时建议顺手补一条断言
 

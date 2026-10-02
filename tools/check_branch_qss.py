@@ -30,9 +30,20 @@ def check(label: str, cond: bool, detail: str = "") -> None:
 
 
 def load_namespace(src: str, tree: ast.AST) -> dict:
-    """把几个纯字符串函数抽出来，在干净命名空间里执行（可注入替身）。"""
+    """把几个纯字符串函数抽出来，在干净命名空间里执行（可注入替身）。
+
+    坑（2026-10-02 修）：`theme.py` 顶部有 ``from __future__ import annotations``，
+    所以 ``def nav_branch_qss(widget: Optional[QWidget] = None)`` 里的注解在**真模块**里
+    是一串字符串、根本不求值；而这里是把函数源码单独抠出来 exec，
+    少了那句 future import，注解就会在 def 时求值
+    → ``NameError: name 'Optional' is not defined``，整个检查器红掉。
+
+    补上 future import（必须是注入代码的**第一行**）即可与真模块环境一致 ——
+    不需要给 Optional / QWidget 造替身。
+    """
     want = ("nav_branch_qss", "nav_tree_qss")
     code = (
+        "from __future__ import annotations\n"
         'DARK_TEXT = "#d6d6d6"\n'
         "import os\n"
         "WIDGET_DARK = True\n"
