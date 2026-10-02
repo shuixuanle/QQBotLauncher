@@ -153,8 +153,14 @@ def main() -> int:
               "浅 {} / 深 {}".format(seen["light"][0][2], seen["dark"][0][2]))
         check("深色板绿色 = Windows Terminal 的 #13a10e", seen["dark"][0][2] == "#13a10e",
               seen["dark"][0][2])
-        check("浅色板绿色 = 压暗后的 #0b6b0b", seen["light"][0][2] == "#0b6b0b",
-              seen["light"][0][2])
+        # 浅色的绿不写死具体值（会随调色反复微调）：只要求"比深色那套更深"
+        light_green = seen["light"][0][2]
+        dark_green = seen["dark"][0][2]
+        light_sum = sum(int(light_green[i:i + 2], 16) for i in (1, 3, 5))
+        dark_sum = sum(int(dark_green[i:i + 2], 16) for i in (1, 3, 5))
+        check("浅色板的绿色比深色板更深（浅底上要压暗）", light_sum < dark_sum,
+              "浅 {} 合计 {} / 深 {} 合计 {}".format(light_green, light_sum,
+                                                   dark_green, dark_sum))
 
         # 每种主题下都真喂一行，确认"同一个 32 在不同主题下取到不同的绿"
         print("\n[5] 同一个 ESC[32m 在两种主题下渲染成不同的绿")

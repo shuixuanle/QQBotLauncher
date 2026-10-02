@@ -167,12 +167,13 @@ def run_color_checks() -> None:
 
     bright_white = (255, 255, 255)
     fixed = readable(bright_white, False)
-    check("浅色底：亮白被压到读得清（亮度 ≤ 0.62）", luma(fixed) <= 0.62,
-          "{} → {} 亮度 {:.2f}".format(bright_white, fixed, luma(fixed)))
+    limit = namespace.get("ANSI_LIGHT_MAX_LUMA", 0.42)
+    check("浅色底：亮白被压到与色板同一深度（近似亮度 ≤ {:.2f}）".format(limit),
+          luma(fixed) <= limit, "{} → {} 亮度 {:.2f}".format(bright_white, fixed, luma(fixed)))
     dark_fix = readable((0, 0, 0), True)
     check("深色底：纯黑被提到看得见（亮度 ≥ 0.10）", luma(dark_fix) >= 0.10,
           "(0,0,0) → {} 亮度 {:.2f}".format(dark_fix, luma(dark_fix)))
-    keep = (0x0b, 0x6b, 0x0b)          # 浅色板的绿色：本来就够暗，不该被改
+    keep = (0x09, 0x53, 0x09)          # 浅色板的绿色：本来就够深，不该被改
     check("浅色底：正常的绿色原样保留", readable(keep, False) == keep,
           "{} → {}".format(keep, readable(keep, False)))
 
@@ -182,8 +183,53 @@ def run_color_checks() -> None:
     check("深色板 16 色", len(dark) == 16, str(len(dark)))
     check("浅色板全部是 #rrggbb",
           all(len(c) == 7 and c.startswith("#") for c in light), str(light[:3]))
-    worst = max(luma(tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))) for c in light)
-    check("浅色板里最亮的颜色也读得清（亮度 ≤ 0.62）", worst <= 0.62, "{:.2f}".format(worst))
+
+    # 真机反馈："浅色模式下带颜色的字体颜色深些观感更好" ——
+    # 把"够不够深"变成可计算的 WCAG 对比度，而不是靠眼睛。
+    ratios = sorted(contrast_ratio(hex_to_rgb(c)) for c in light)
+    worst = ratios[0]
+    median = ratios[len(ratios) // 2]
+    check("浅色板没有一个颜色低于 WCAG AA（4.5:1）", worst >= 4.5, "最低 {:.2f}".format(worst))
+    check("浅色板对比度中位数 ≥ 6:1", median >= 6.0, "中位 {:.2f}".format(median))
+
+    base_ratios = [contrast_ratio(hex_to_rgb(light[index])) for index in range(1, 7)]
+    bright_ratios = [contrast_ratio(hex_to_rgb(light[index])) for index in range(9, 15)]
+    check("基础色 1-6 全部达到 7:1（与正文同级）", min(base_ratios) >= 7.0,
+          "最低 {:.2f}".format(min(base_ratios)))
+    check("亮色 9-14 全部达到 6:1（够清楚）", min(bright_ratios) >= 6.0,
+          "最低 {:.2f}".format(min(bright_ratios)))
+
+    # 亮色必须比对应的基础色**亮一档**（否则"亮色"就失去意义了）
+    lighter_ok = all(
+        luma(hex_to_rgb(light[index + 8])) > luma(hex_to_rgb(light[index]))
+        for index in range(1, 7)
+    )
+    check("浅色板 9-14 比 1-6 亮一档（保住终端明暗语义）", lighter_ok)
+
+
+def hex_to_rgb(value: str):
+    """`#rrggbb` → (r, g, b)。"""
+    text = str(value or "").lstrip("#")
+    return tuple(int(text[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _srgb_channel(value: float) -> float:
+    """sRGB 分量线性化（WCAG 用的那一步）。"""
+    value = max(0.0, min(1.0, value / 255.0))
+    return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(rgb) -> float:
+    """WCAG 相对亮度。"""
+    red, green, blue = (_srgb_channel(v) for v in rgb)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def contrast_ratio(rgb, background=(0xF0, 0xEF, 0xE9)) -> float:
+    """与日志区底色（浅色 `#f0efe9`）的 WCAG 对比度。"""
+    first, second = relative_luminance(rgb), relative_luminance(background)
+    high, low = max(first, second), min(first, second)
+    return (high + 0.05) / (low + 0.05)
 
 
 def check_log_colors_arity() -> None:
