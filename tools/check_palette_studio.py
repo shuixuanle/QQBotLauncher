@@ -114,13 +114,15 @@ def builtin_literals(source: str, name: str):
 # [1][2] 纯函数：抠出来真跑
 # ---------------------------------------------------------------------------
 
-def build_theme_namespace():
+def build_theme_namespace(report: dict = None):
     """抠出 theme.py 里不依赖 Qt 的部分（公共工具，见 tools/_theme_probe.py）。
 
     以前这里手写"要哪几个常量、要哪几个函数"，结果每加一个角色表就 NameError 一次
     （`UI_ROLES`、`ROLE_TABLES`…）—— 现在交给公共工具自动收依赖。
+    `report["skipped"]` 会列出"因为缺依赖而没抠出来"的常量：**必须为空**，
+    否则说明真模块里存在"先用后定义"（真机就是 main.py 一启动就 NameError）。
     """
-    return load_theme_namespace(NEEDED_FUNCTIONS)
+    return load_theme_namespace(NEEDED_FUNCTIONS, report=report)
 
 
 def own_contrast(color_a: str, color_b: str) -> float:
@@ -140,7 +142,11 @@ def own_contrast(color_a: str, color_b: str) -> float:
 
 
 def run_parse_checks() -> None:
-    namespace = build_theme_namespace()
+    report: dict = {}
+    namespace = build_theme_namespace(report)
+    print("[0] theme.py 的常量都能按真实顺序抠出来")
+    check("没有「先用后定义」的常量（skipped 为空）", not report.get("skipped"),
+          "抠不出来 = {}".format(report.get("skipped")))
     parse = namespace["parse_palette_text"]
     is_hex = namespace["is_hex_color"]
     normalize = namespace["normalize_hex"]

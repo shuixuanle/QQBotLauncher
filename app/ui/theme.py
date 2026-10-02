@@ -175,6 +175,50 @@ SETTINGS_CUSTOM_PREFIX = "colors/"
 #: 运行期的覆盖值（键同上，值是颜色字符串 / 16 色元组）
 _CUSTOM: Dict[str, object] = {}
 
+
+#: xterm 256 色里 6×6×6 色立方用的六档分量
+ANSI_CUBE_LEVELS: Tuple[int, ...] = (0, 95, 135, 175, 215, 255)
+
+#: 选中项文字色 / 日志区禁用文字色
+HIGHLIGHTED_TEXT = "#ffffff"
+DISABLED_LOG_TEXT = "#9a9a9a"
+
+#: 左侧列表**选中行**（浅色）：浅蓝底 + 深字。
+#: 它和 `highlight`（按钮/链接那种强调色）是两回事 —— 分开成两个角色，
+#: 改一个不会连带把另一个也改掉。
+NAV_LIGHT_SELECTED_BG = "#cfe3f7"
+NAV_LIGHT_SELECTED_TEXT = "#1a1a1a"
+
+#: 次要文字色
+MUTED_DARK = "#9a9a9a"
+MUTED_LIGHT = "#6b6b6b"
+
+#: 状态色（浅深主题通用；深色下同样清晰）
+COLOR_IDLE = "#808080"
+COLOR_STARTING = "#d9a441"
+COLOR_RUNNING = "#3fa34d"
+COLOR_STOPPING = "#d9a441"
+COLOR_STOPPED = "#808080"
+COLOR_FAILED = "#d9534f"
+COLOR_DISABLED = "#808080"
+
+#: 窗格焦点边框色
+FOCUS_BORDER_DARK = "#4a7fb5"
+FOCUS_BORDER_LIGHT = "#7ab0e0"
+
+#: 进程状态 + Bot 汇总状态 -> 颜色（键是字符串，避免 import ProcessManager 造成环）
+STATUS_COLORS: Dict[str, str] = {
+    "idle": COLOR_IDLE,
+    "starting": COLOR_STARTING,
+    "running": COLOR_RUNNING,
+    "stopping": COLOR_STOPPING,
+    "stopped": COLOR_STOPPED,
+    "failed": COLOR_FAILED,
+    "disabled": COLOR_DISABLED,
+    "partial": COLOR_STARTING,
+    "unknown": COLOR_IDLE,
+}
+
 # ---------------------------------------------------------------------------
 # 界面颜色角色：整个界面可自定义的基础
 #
@@ -300,49 +344,6 @@ def resolve_roles(dark: Optional[bool] = None,
     if dark is None:
         dark = is_dark(widget)
     return {role: role_color(role, dark=dark) for role in UI_ROLES}
-
-#: xterm 256 色里 6×6×6 色立方用的六档分量
-ANSI_CUBE_LEVELS: Tuple[int, ...] = (0, 95, 135, 175, 215, 255)
-
-#: 选中项文字色 / 日志区禁用文字色
-HIGHLIGHTED_TEXT = "#ffffff"
-DISABLED_LOG_TEXT = "#9a9a9a"
-
-#: 左侧列表**选中行**（浅色）：浅蓝底 + 深字。
-#: 它和 `highlight`（按钮/链接那种强调色）是两回事 —— 分开成两个角色，
-#: 改一个不会连带把另一个也改掉。
-NAV_LIGHT_SELECTED_BG = "#cfe3f7"
-NAV_LIGHT_SELECTED_TEXT = "#1a1a1a"
-
-#: 次要文字色
-MUTED_DARK = "#9a9a9a"
-MUTED_LIGHT = "#6b6b6b"
-
-#: 状态色（浅深主题通用；深色下同样清晰）
-COLOR_IDLE = "#808080"
-COLOR_STARTING = "#d9a441"
-COLOR_RUNNING = "#3fa34d"
-COLOR_STOPPING = "#d9a441"
-COLOR_STOPPED = "#808080"
-COLOR_FAILED = "#d9534f"
-COLOR_DISABLED = "#808080"
-
-#: 窗格焦点边框色
-FOCUS_BORDER_DARK = "#4a7fb5"
-FOCUS_BORDER_LIGHT = "#7ab0e0"
-
-#: 进程状态 + Bot 汇总状态 -> 颜色（键是字符串，避免 import ProcessManager 造成环）
-STATUS_COLORS: Dict[str, str] = {
-    "idle": COLOR_IDLE,
-    "starting": COLOR_STARTING,
-    "running": COLOR_RUNNING,
-    "stopping": COLOR_STOPPING,
-    "stopped": COLOR_STOPPED,
-    "failed": COLOR_FAILED,
-    "disabled": COLOR_DISABLED,
-    "partial": COLOR_STARTING,
-    "unknown": COLOR_IDLE,
-}
 
 
 # ---------------------------------------------------------------------------

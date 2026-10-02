@@ -41,7 +41,7 @@ python -c "from PyQt6.QtCore import QT_VERSION_STR; print('PyQt6 Qt', QT_VERSION
 ### 提问前先自查（能省一轮往返）
 
 ```bat
-python tools\run_all_checks.py     :: 24 个静态检查一次跑完
+python tools\run_all_checks.py     :: 25 个静态检查一次跑完
 python main.py --doctor            :: 只做导入与名字体检，不需要图形界面
 python main.py --theme-debug       :: 外观相关问题（打印主题诊断并写 theme_debug.log）
 python main.py --nav-debug         :: 左侧列表相关问题
@@ -101,12 +101,12 @@ UI：合并重复的窗格标题行
 ### 自检（必须全绿）
 
 ```bat
-python tools\run_all_checks.py          :: 一次跑完 24 个检查器
+python tools\run_all_checks.py          :: 一次跑完 25 个检查器
 python tools\run_all_checks.py -v       :: 需要看细节时
 python main.py --selftest               :: GUI 自检（环境与配置摘要）
 ```
 
-24 个检查器各自盯着一个真实踩过的坑，例如：
+25 个检查器各自盯着一个真实踩过的坑，例如：
 
 | 检查器 | 挡住的坑 |
 | --- | --- |
@@ -122,6 +122,7 @@ python main.py --selftest               :: GUI 自检（环境与配置摘要）
 | `check_ansi_live.py` | 【需 PyQt6】**槽里的异常 = 整个程序退出**（同名函数被覆盖导致的解包错误，真机上就是"闪退"） |
 | `check_duplicate_defs.py` | 同一个模块/类里重名定义，后一个静默覆盖前一个（静态检查全绿，跑起来才炸） |
 | `check_palette_studio.py` | 「配色工作台 → QSettings → 启动载入」这条链路断一环（预览与真机不一致、存了不生效） |
+| `check_definition_order.py` | 模块级**先用后定义**（`py_compile` 全绿，`python main.py` 一启动就 NameError） |
 
 ### 修 bug 时建议顺手补一条断言
 

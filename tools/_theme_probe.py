@@ -61,13 +61,19 @@ _CUSTOM = {}
 '''
 
 
-def load_theme_namespace(functions=(), theme_path=None) -> dict:
+def load_theme_namespace(functions=(), theme_path=None, report=None) -> dict:
     """返回一个可以直接调用这些函数的命名空间。
 
     `functions` 只需要写"你想直接用的那几个"：它会顺着调用关系把**同模块里
     被用到的函数**一起抠出来（`role_color` → `builtin_role_color` 这种），
     免得再出现"少抠一个就 NameError"的老问题。
     预置桩（`is_dark` 等）不参与自动收集，避免把真实现拉进来。
+
+    **按文件顺序**累积执行常量 —— 这一点很关键：以前是"两趟收集"（先字面量、
+    再依赖别人的），等于替真模块**重排**了定义顺序，把
+    "LIGHT_ROLES 引用了下面才定义的 MUTED_LIGHT"这种 import 期 NameError
+    悄悄盖住了（真机上就是 main.py 一启动就崩）。
+    现在抠不出来的常量会记进 `report["skipped"]`，调用方可以断言它为空。
     """
     path = Path(theme_path) if theme_path else THEME
     source = path.read_text(encoding="utf-8")
@@ -94,27 +100,19 @@ def load_theme_namespace(functions=(), theme_path=None) -> dict:
         wanted |= added
 
     code = PREAMBLE
-    # —— 第一趟：能直接字面量取值的常量 ——
-    pending = []
+    skipped: list = []
+    # —— 常量：严格按文件顺序 ——
     for node in tree.body:
         name, value_node = _assignment(node)
         if not name or value_node is None or not CONSTANT_NAME.match(name):
             continue
-        try:
-            code += "{} = {!r}\n".format(name, ast.literal_eval(value_node))
-        except ValueError:
-            pending.append((name, value_node))
-
-    # —— 第二趟：引用了别的常量的那些（例如 LIGHT_ROLES 引用 LIGHT_WINDOW）——
-    # 注意要在**已经收好的常量环境里**试，否则 `{False: LIGHT_ROLES, …}` 这种
-    # 会因为"单独一个空命名空间里没有 LIGHT_ROLES"被误判成抠不出来。
-    for name, value_node in pending:
         segment = ast.get_source_segment(source, value_node) or ""
         candidate = "{} = {}\n".format(name, segment)
         trial: dict = {}
         try:
-            exec(code + candidate, trial)
-        except Exception:                # noqa: BLE001 - 抠不出来就算了
+            exec(code + candidate, trial)     # 缺依赖就会在这里炸 → 记下来
+        except Exception:                     # noqa: BLE001 - 抠不出来就跳过
+            skipped.append(name)
             continue
         code += candidate
 
@@ -125,6 +123,8 @@ def load_theme_namespace(functions=(), theme_path=None) -> dict:
 
     namespace: dict = {}
     exec(code, namespace)                # noqa: S102 - 只执行本项目自己的代码
+    if report is not None:
+        report["skipped"] = skipped
     return namespace
 
 
