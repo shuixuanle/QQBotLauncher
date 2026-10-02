@@ -104,6 +104,17 @@ def main() -> int:
     check("子进程环境设了 PYTHONIOENCODING", "PYTHONIOENCODING" in runner)
     check("按 UTF-8 解码子进程输出", 'encoding="utf-8"' in runner)
 
+    print("\n[3b] run_all_checks 要有实时进度（真机反馈：静默期像跑完了，被提前关掉）")
+    check("有进度条函数", "def progress_bar(" in runner)
+    check("有原地刷新的状态行（\\r 覆盖）", "def update(" in runner and '\\r' in runner)
+    check("结果行带序号（[ 7/27] 这种）", "[{:>2}/{}]" in runner)
+    check("开始前打印总数与超时", "共 {} 个检查器" in runner)
+    check("结束后打印明确的一行「全部跑完」", "全部跑完" in runner)
+    check("汇总里有总耗时与最慢几项", "总耗时" in runner and "最慢的几项" in runner)
+    check("用后台线程读子进程输出（否则管道写满会把检查器卡死）",
+          "threading" in runner and "read_stream" in runner)
+    check("非终端（重定向/CI）时不刷动画", "isatty" in runner)
+
     print("\n[4] .bat 入口是纯 ASCII（cmd 按 ANSI 读它）")
     bats = sorted(TOOLS.glob("*.bat")) + sorted(ROOT.glob("*.bat"))
     bad_bats = []

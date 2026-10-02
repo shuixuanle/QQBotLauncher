@@ -304,6 +304,22 @@ tools\run_all_checks.bat                :: 同上，双击也能跑（自动切 
 > `run_all_checks.py` 给子进程统一设 `PYTHONIOENCODING=utf-8`；
 > `tools\run_all_checks.bat` 还会 `chcp 65001` 让控制台本身也吃 UTF-8。
 > 这条也由 `tools\check_console_output.py` 盯着。
+>
+> **跑的时候怎么知道还没跑完**（真机反馈：有几个检查器要跑十几秒，屏幕没动静，
+> 看着像跑完了、顺手把窗口关了 —— 其实还剩一堆）。所以现在的输出长这样：
+> ```text
+> 共 27 个检查器（其中 3 个因缺 PyQt6 跳过），单个超时 180 秒
+> ====================…（跑的时候这里有一行原地刷新的进度）====================
+>   [ OK ] [ 7/27] check_restart_flow.py             0.3s  结果： 全部通过
+> ====================…
+> 通过 27 · 失败 0 · 跳过 0（共 27 个，总耗时 1m12s）
+> 最慢的几项：check_restart_force.py 18.4s　check_alloc_console_live.py 9.1s　…
+>
+> 全部跑完。可以放心关窗口了。
+> ```
+> 跑的过程中那一行会显示 **进度条 + `[ 7/27]` 序号 + 百分比 + 已跑时间**（每 0.2 秒刷新）；
+> 单个检查器超过 180 秒会被强制结束（连它拉起的进程树一起收，免得留窗口）。
+> 想改超时：`python tools\run_all_checks.py --timeout 300`。
 
 `tools\diagnostics\` 下还有几个只读诊断脚本（颜色 dump、主题自检、日志区像素取色），
 详见 [tools/diagnostics/README.md](tools/diagnostics/README.md)。
