@@ -11,6 +11,7 @@
     python tools\\run_all_checks.py --list     # 只列出会跑哪些
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +31,30 @@ def has_pyqt6() -> bool:
         return True
     except ImportError:
         return False
+
+
+def child_env() -> dict:
+    """给子进程的环境：**强制 UTF-8 输出**。
+
+    为什么必须写明（真机踩过 2026-10-02）：中文 Windows 的控制台是 cp936，
+    子进程默认按 cp936 输出，而这里按 UTF-8 解码 —— 汇总行全是乱码；
+    更糟的是子进程只要打印一个 cp936 编不了的符号（▸ / ⇄ / ✓）就直接崩，
+    报出来还是 UnicodeEncodeError，看着像"检查器坏了"。
+    统一成 UTF-8 + errors=replace：两边永远对得上，也不会再崩在输出上。
+    """
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8:replace"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
+# 控制台兜底：中文 Windows 的控制台默认是 cp936，编码不了 ▸ / ⇄ / ✓ 这类符号，
+# 直接 print 会抛 UnicodeEncodeError，把检查器自己弄崩（真机踩过：run_all_checks
+# 里两个检查器就是这么红的）。这里统一退化成 ?，绝不因为"输出"而中断检查。
+try:
+    sys.stdout.reconfigure(errors="replace")
+except (AttributeError, ValueError):
+    pass
 
 
 def main() -> int:
@@ -62,10 +87,18 @@ def main() -> int:
             [sys.executable, str(path)],
             cwd=str(ROOT), capture_output=True, text=True,
             encoding="utf-8", errors="replace", check=False, timeout=300,
+            env=child_env(),
         )
         output = ((proc.stdout or "") + (proc.stderr or "")).strip()
         tail = [ln for ln in output.splitlines() if ln.strip()]
-        summary = tail[-1] if tail else "(无输出)"
+        # 汇总行取"最后一行不是进度提示的"那一行：有些检查器（如 check_ansi_live）
+        # 末尾会带一句 Qt 的字体告警，直接取最后一行会显示成告警。
+        summary = "(无输出)"
+        for line in reversed(tail):
+            if "qt." in line.lower() or "QFontDatabase" in line or "Note that Qt" in line:
+                continue
+            summary = line
+            break
 
         if proc.returncode == 0:
             passed.append(name)

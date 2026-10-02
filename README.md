@@ -292,9 +292,17 @@ python main.py
 改完代码想一次跑完所有自检：
 
 ```bat
-python tools\run_all_checks.py          :: 25 个检查器一次跑完，末尾汇总
+python tools\run_all_checks.py          :: 26 个检查器一次跑完，末尾汇总
 python tools\run_all_checks.py -v       :: 额外打印每个检查器的完整输出
+tools\run_all_checks.bat                :: 同上，双击也能跑（自动切 UTF-8 控制台）
 ```
+
+> **中文 Windows 的编码坑**（真机踩过）：cmd 默认是 cp936，检查器输出里的个别符号
+> （`▸` `⇄` `✓`）编不出来，会让**检查器自己崩在 print 上**。现在两头都堵住了：
+> 每个检查器都有 `sys.stdout.reconfigure(errors="replace")` 兜底；
+> `run_all_checks.py` 给子进程统一设 `PYTHONIOENCODING=utf-8`；
+> `tools\run_all_checks.bat` 还会 `chcp 65001` 让控制台本身也吃 UTF-8。
+> 这条也由 `tools\check_console_output.py` 盯着。
 
 `tools\diagnostics\` 下还有几个只读诊断脚本（颜色 dump、主题自检、日志区像素取色），
 详见 [tools/diagnostics/README.md](tools/diagnostics/README.md)。
@@ -1087,7 +1095,8 @@ QQBot启动管理器/
 │       └── palette_dialog.py    # 配色工作台（视图→外观→配色工作台…）：改完立即生效
 ├── tools/
 │   ├── run_all_checks.py        # 一次跑完所有检查器（末尾汇总 通过/失败/跳过）
-│   ├── check_*.py               # 25 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
+│   ├── run_all_checks.bat       # 同上，双击入口（chcp 65001 + 自动找解释器）
+│   ├── check_*.py               # 26 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
 │   ├── palette_studio.py        # 配色工作台：真控件上试色 → 存成自定义配色（需 PyQt6）
 │   ├── _theme_probe.py          # 检查器公用：把 theme.py 里不依赖 Qt 的部分抠出来跑
 │   ├── check_definition_order.py # 真·导入测试 + 「先用后定义」检查（见 CONTRIBUTING.md）
@@ -1190,7 +1199,7 @@ main.py ──> app.ui.main_window ──> app.ui.bot_tab ──> app.ui.program
 **提问前可以先自查**（能省一轮往返）：
 
 ```bat
-python tools\run_all_checks.py     :: 25 个静态检查一次跑完，多数低级问题这里就报出来了
+python tools\run_all_checks.py     :: 26 个静态检查一次跑完，多数低级问题这里就报出来了
 python main.py --doctor             :: 只做导入与名字体检，不需要图形界面
 ```
 

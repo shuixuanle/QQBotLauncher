@@ -43,6 +43,15 @@ def decorator_names(node: ast.FunctionDef) -> list:
     return [ast.unparse(item) for item in node.decorator_list]
 
 
+# 控制台兜底：中文 Windows 的控制台默认是 cp936，编码不了 ▸ / ⇄ / ✓ 这类符号，
+# 直接 print 会抛 UnicodeEncodeError，把检查器自己弄崩（真机踩过：run_all_checks
+# 里两个检查器就是这么红的）。这里统一退化成 ?，绝不因为"输出"而中断检查。
+try:
+    sys.stdout.reconfigure(errors="replace")
+except (AttributeError, ValueError):
+    pass
+
+
 def main() -> int:
     targets = sorted(Path(ROOT, "app").rglob("*.py")) + [Path(ROOT, "main.py")]
     total = 0

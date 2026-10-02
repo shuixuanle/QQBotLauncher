@@ -17,6 +17,7 @@
 
 import ast
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 MAIN = ROOT / "app" / "ui" / "main_window.py"
@@ -29,6 +30,14 @@ def check(label: str, cond: bool, detail: str = "") -> None:
     print(("  [OK]   " if cond else "  [FAIL] ") + label + (("  " + detail) if detail else ""))
     if not cond:
         failures.append(label)
+
+# 控制台兜底：中文 Windows 的控制台默认是 cp936，编码不了 ▸ / ⇄ / ✓ 这类符号，
+# 直接 print 会抛 UnicodeEncodeError，把检查器自己弄崩（真机踩过：run_all_checks
+# 里两个检查器就是这么红的）。这里统一退化成 ?，绝不因为"输出"而中断检查。
+try:
+    sys.stdout.reconfigure(errors="replace")
+except (AttributeError, ValueError):
+    pass
 
 
 def main() -> int:
@@ -93,7 +102,9 @@ def main() -> int:
     ch_src = ast.get_source_segment(src, changed) or "" if changed else ""
     check("  切换页面用 setCurrentWidget", "setCurrentWidget" in ch_src)
     check("  高亮跟着走（_select_nav_for_bot）", "_select_nav_for_bot" in ch_src)
-    check("  ▸ 标记同步（_apply_nav_focus_marker）",
+    # 标签只用 ASCII：控制台是 cp936，`▸`（U+25B8）会让 print 直接抛
+    # UnicodeEncodeError 把检查器弄崩（真机踩过，见 check_console_output.py）
+    check("  [>] 标记同步（_apply_nav_focus_marker）",
           "_apply_nav_focus_marker" in ch_src)
 
     close = methods.get("_on_bot_tab_bar_close_requested")

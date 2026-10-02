@@ -38,12 +38,37 @@ def check(label: str, cond: bool, detail: str = "") -> None:
         failures.append(label)
 
 
+#: 探针程序：打印一行然后长睡（重启测试需要一个"活着"的进程）
+PROBE_CODE = "import time; print('probe up', flush=True); time.sleep(120)"
+
+
+def probe_command() -> str:
+    """探针命令行：**用当前解释器**，不要写死 `python`。
+
+    真机教训（2026-10-02）：写死 `python` 时，用户机器上 PATH 里的 `python.exe`
+    可能是 Store 别名 / 启动器 shim —— 它自己**立刻退出（退出码 0）**，
+    于是 [1] 就报"启动失败：进程已退出"，整条重启链路根本测不到。
+    `sys.executable` 一定是"正在跑这个检查器的那只解释器"，最稳。
+    """
+    exe = sys.executable or "python"
+    return '"{exe}" -c "{code}"'.format(exe=exe, code=PROBE_CODE.replace('"', '\\"'))
+
+
 def pump(app, ms: int) -> None:
     """跑事件循环 ms 毫秒（QProcess 需要事件循环才会派发信号）。"""
     deadline = time.time() + ms / 1000.0
     while time.time() < deadline:
         app.processEvents()
         time.sleep(0.02)
+
+
+# 控制台兜底：中文 Windows 的控制台默认是 cp936，编码不了 ▸ / ⇄ / ✓ 这类符号，
+# 直接 print 会抛 UnicodeEncodeError，把检查器自己弄崩（真机踩过：run_all_checks
+# 里两个检查器就是这么红的）。这里统一退化成 ?，绝不因为"输出"而中断检查。
+try:
+    sys.stdout.reconfigure(errors="replace")
+except (AttributeError, ValueError):
+    pass
 
 
 def main() -> int:
@@ -71,11 +96,12 @@ def main() -> int:
         program = Program(
             id="restart_probe",
             name="重启探针",
-            command="python -c \"import time; print('probe up', flush=True); time.sleep(120)\"",
+            command=probe_command(),
         )
         key = build_manager_key("probe_bot", program.id)
 
         print("[1] 启动一个真实的长跑进程")
+        print("    探针命令 = {}".format(program.command))
         manager.start(key, program, ROOT)
         pump(app, 4000)
         entry = manager._entries.get(key)
@@ -84,6 +110,8 @@ def main() -> int:
         if entry is None or not entry.is_running:
             print("  启动失败，后面的断言无意义，输出：")
             print("".join(logs)[:800])
+            print("  ↑ 如果上面显示「已退出（退出码 0）」，说明探针自己被立刻结束了：")
+            print("    先手工执行一次那条命令，确认它能停住不动（打印 probe up 后不返回）。")
             return 1
         first_pid = entry.pid
         print("    第一个 PID = {}".format(first_pid))
