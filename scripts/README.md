@@ -53,6 +53,15 @@ rem 这里放真正要跑的命令
 
 > `hydrant_dir.txt` 带个人路径，所以 `.gitignore` 里忽略了它，不进仓库。
 > 懒得翻目录：`python tools\find_hydrant.py --write` 会自己找并写好这一行。
+>
+> **第二行（可选）= 启动命令**，想加参数时用，例如：
+> ```text
+> D:\BOTBENTI\...\Bleatingsheep.NewHydrant.Bot\bin\Debug\net10.0
+> dotnet Bleatingsheep.NewHydrant.Bot.dll --urls http://localhost:5000
+> ```
+> 不写第二行时的默认顺序：**先 `dotnet <bot>.dll`**（.NET 项目常常没有 .exe，
+> 例如消防栓就是这样，而且必须在产物目录里执行）→ 再找 `*.exe` 直接运行。
+> 找不到 dll/exe 时退出码 5；`dotnet` 不在 PATH 上时退出码 6。
 
 ### 几个踩过的坑
 

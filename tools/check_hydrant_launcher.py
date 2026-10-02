@@ -118,8 +118,16 @@ def main() -> int:
     check("没有在括号块里读 %CD%", not anchor, "找到：{}".format(anchor))
     check("BOT_DIR 从 %~dp0 派生（与当前目录无关）",
           "%~dp0.." in text or "QQBOT_HYDRANT_DIR" in text)
-    check("找不到时有明确提示（告诉用户两种修法）",
+    check("找不到时有明确提示（告诉用户几种修法）",
           "QQBOT_HYDRANT_DIR" in text and "[ERROR]" in text)
+    print("\n[1c] 启动方式：先 dotnet <dll>（.NET 项目常常没有 .exe），再 *.exe")
+    dll_at = text.find('set "DLL="')
+    exe_at = text.find('set "APP="')
+    check("有 dotnet <dll> 这条路径", 'dotnet "%DLL%"' in text)
+    check("dll 的判定写在 exe 之前（顺序反了就会去跑不存在的 exe）",
+          0 <= dll_at < exe_at, "dll@{}, exe@{}".format(dll_at, exe_at))
+    check("dotnet 不在 PATH 上有明确报错", "where dotnet" in text)
+    check("支持 hydrant_dir.txt 第二行当自定义命令", "skip=1" in text and "run_custom" in text)
 
     print("\n[2] bots_config.json 里消防栓的启动命令")
     if not CONFIG.exists():
