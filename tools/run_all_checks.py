@@ -23,6 +23,26 @@ TOOLS = ROOT / "tools"
 #:   · check_ansi_live.py —— 真建一个日志控件喂 ANSI 日志（2026-10-02 的"闪退"就是它挡的那类）
 NEEDS_PYQT6 = {"check_restart_force.py", "check_alloc_console_live.py", "check_ansi_live.py"}
 
+#: 单个检查器的超时（秒）。真机上有几个检查器会真的起进程、开窗口
+#: （check_alloc_console_live 会拉起两个真管理器窗口），卡住时不能一直等；
+#: 超时后连它拉起的**整棵进程树**一起收掉，免得在桌面上留窗口。
+CHECK_TIMEOUT = 180
+
+
+def kill_tree(pid) -> bool:
+    """按 PID 结束整棵进程树（Windows：taskkill /T /F）。"""
+    if not pid:
+        return False
+    try:
+        completed = subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(int(pid))],
+            capture_output=True, text=True, check=False,
+            encoding="utf-8", errors="replace", timeout=20,
+        )
+        return completed.returncode == 0
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
 
 def has_pyqt6() -> bool:
     try:
@@ -83,13 +103,25 @@ def main() -> int:
             print("  [SKIP] {:<34} 需要 PyQt6".format(name))
             continue
 
-        proc = subprocess.run(
+        child = subprocess.Popen(
             [sys.executable, str(path)],
-            cwd=str(ROOT), capture_output=True, text=True,
-            encoding="utf-8", errors="replace", check=False, timeout=300,
+            cwd=str(ROOT), text=True,
+            encoding="utf-8", errors="replace",
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             env=child_env(),
         )
-        output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+        try:
+            output = (child.communicate(timeout=CHECK_TIMEOUT)[0] or "").strip()
+            returncode = child.returncode
+        except subprocess.TimeoutExpired:
+            # 超时：把这只检查器**整棵进程树**收掉。
+            # 真机反馈过"检查器跑完还开着几个窗口" —— 根因之一就是超时/早退时
+            # 子进程（以及它拉起的独立窗口进程）没人收。
+            kill_tree(child.pid)
+            output = (child.communicate()[0] or "").strip()
+            output += "\n!! 超时（{} 秒），已结束该检查器的进程树".format(CHECK_TIMEOUT)
+            returncode = -1
+        output = output.strip()
         tail = [ln for ln in output.splitlines() if ln.strip()]
         # 汇总行取"最后一行不是进度提示的"那一行：有些检查器（如 check_ansi_live）
         # 末尾会带一句 Qt 的字体告警，直接取最后一行会显示成告警。
@@ -100,7 +132,7 @@ def main() -> int:
             summary = line
             break
 
-        if proc.returncode == 0:
+        if returncode == 0:
             passed.append(name)
             print("  [ OK ] {:<34} {}".format(name, summary[:60]))
         else:

@@ -371,6 +371,15 @@ def _windowless_interpreter() -> str:
 #: 标记环境变量：由 --gui 拉起的子进程会带上它，避免无限重启
 GUI_CHILD_ENV = "QQBOT_GUI_CHILD"
 
+#: 最近一次"脱离启动"拉起的子进程 PID（0 = 没有）。
+#:
+#: 为什么留着它：脱离启动是**故意**让子进程独立活的（关掉启动它的 cmd 也不受影响），
+#: 于是"谁来收拾它"就成了问题 —— 检查器（tools/check_alloc_console_live.py）需要
+#: 在测完之后精确地把它关掉，而不是靠 `taskkill /IM python.exe` 这种连坐式清理
+#: （真机踩过：那样只杀掉了 python.exe，--gui 拉起的 **pythonw.exe** 活了下来，
+#:  于是屏幕上一个管理器窗口一直开着）。
+LAST_RELAUNCH_PID = 0
+
 
 def relaunch_detached() -> bool:
     """用 ``pythonw.exe`` 脱离启动自己 —— 屏幕上**只剩管理器界面**，没有控制台。
@@ -433,7 +442,7 @@ def relaunch_detached() -> bool:
         | getattr(subprocess, "CREATE_UNICODE_ENVIRONMENT", 0)
     )
     try:
-        subprocess.Popen(
+        child = subprocess.Popen(
             args,
             cwd=here,
             creationflags=creationflags,
@@ -443,6 +452,8 @@ def relaunch_detached() -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        global LAST_RELAUNCH_PID
+        LAST_RELAUNCH_PID = int(child.pid or 0)
         return True
     except (OSError, ValueError):
         return False
@@ -484,13 +495,15 @@ def relaunch_with_own_console() -> bool:
             getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
             | getattr(subprocess, "CREATE_UNICODE_ENVIRONMENT", 0)
         )
-        subprocess.Popen(
+        child = subprocess.Popen(
             args,
             cwd=os.path.dirname(os.path.abspath(__file__)) or None,
             creationflags=creationflags,
             env=child_env,
             close_fds=True,
         )
+        global LAST_RELAUNCH_PID
+        LAST_RELAUNCH_PID = int(child.pid or 0)
         return True
     except (OSError, ValueError, AttributeError):
         return False

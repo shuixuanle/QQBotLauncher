@@ -86,6 +86,7 @@
 - [五、常见问题](#五常见问题)
   - [日志里那些 [32;20m、[0m 是什么？](#日志里那些-3220m0m-是什么)
   - [深色模式下日志文字是黑的？](#深色模式下日志文字是黑的)
+  - [命令里带引号的参数、含空格的路径能正常启动吗？](#命令里带引号的参数含空格的路径能正常启动吗)
   - [切换日志区布局后日志内容没了？](#切换日志区布局后日志内容没了)
   - [窗格上的「启动/停止/重启」到底作用在哪些程序？](#窗格上的启动停止重启到底作用在哪些程序)
   - [「重启」在需要强制停止时没能重新启动？](#重启在需要强制停止时没能重新启动)
@@ -292,7 +293,7 @@ python main.py
 改完代码想一次跑完所有自检：
 
 ```bat
-python tools\run_all_checks.py          :: 26 个检查器一次跑完，末尾汇总
+python tools\run_all_checks.py          :: 27 个检查器一次跑完，末尾汇总
 python tools\run_all_checks.py -v       :: 额外打印每个检查器的完整输出
 tools\run_all_checks.bat                :: 同上，双击也能跑（自动切 UTF-8 控制台）
 ```
@@ -1017,6 +1018,17 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 明确颜色，无论 Qt 走哪条都不会再出现黑字。自检项 `[12.5]` 与
 `tools\check_log_pane.py` 都会断言这一点。
 
+### 命令里带引号的参数、含空格的路径能正常启动吗？
+
+能。命令行会先按引号分组拆成参数，再**把分组用的引号去掉**交给进程
+（`via_shell` 那条路除外 —— 那条本该把引号留给 `cmd.exe` 解释 `&&`、`|`）。
+
+> 这里修过一个很隐蔽的 bug（2026-10-02）：拆完**保留**引号时，
+> `python -c "import time; …"` 传给子进程的代码段会**带着引号**，
+> Python 把它当成一个字符串字面量 —— 语法合法、什么都不做、**退出码 0、零输出**，
+> 看起来就像"进程自己正常退出了"。含空格的路径（`-jar "C:\Program Files\x.jar"`）
+> 同理会被当成"带引号的文件名"。现在由 `tools\check_command_argv.py` 盯着。
+
 ### 切换日志区布局后日志内容没了？
 
 已在 N2.10 修复。原因：切换布局会重建整棵窗格树（`self._views = {}` +
@@ -1096,7 +1108,7 @@ QQBot启动管理器/
 ├── tools/
 │   ├── run_all_checks.py        # 一次跑完所有检查器（末尾汇总 通过/失败/跳过）
 │   ├── run_all_checks.bat       # 同上，双击入口（chcp 65001 + 自动找解释器）
-│   ├── check_*.py               # 26 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
+│   ├── check_*.py               # 27 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
 │   ├── palette_studio.py        # 配色工作台：真控件上试色 → 存成自定义配色（需 PyQt6）
 │   ├── _theme_probe.py          # 检查器公用：把 theme.py 里不依赖 Qt 的部分抠出来跑
 │   ├── check_definition_order.py # 真·导入测试 + 「先用后定义」检查（见 CONTRIBUTING.md）
@@ -1199,7 +1211,7 @@ main.py ──> app.ui.main_window ──> app.ui.bot_tab ──> app.ui.program
 **提问前可以先自查**（能省一轮往返）：
 
 ```bat
-python tools\run_all_checks.py     :: 26 个静态检查一次跑完，多数低级问题这里就报出来了
+python tools\run_all_checks.py     :: 27 个静态检查一次跑完，多数低级问题这里就报出来了
 python main.py --doctor             :: 只做导入与名字体检，不需要图形界面
 ```
 

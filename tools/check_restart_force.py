@@ -16,6 +16,7 @@
     python tools\\check_restart_force.py
 """
 
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -71,6 +72,42 @@ except (AttributeError, ValueError):
     pass
 
 
+def kill_pid_tree(pid) -> bool:
+    """按 PID 关掉整棵进程树（兜底用：早退也不能把探针留在机器上）。"""
+    if not pid:
+        return False
+    try:
+        completed = subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(int(pid))],
+            capture_output=True, text=True, check=False,
+            encoding="utf-8", errors="replace", timeout=20,
+        )
+        return completed.returncode == 0
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def close_probe(manager, key: str) -> None:
+    """无论走到哪一步退出，都把探针进程收干净。
+
+    真机教训（2026-10-02）：探针是个真实进程（还带着自己的控制台窗口）。
+    测试在 [1] 就早退时，后面的 [3] 收尾根本没执行 —— 于是那个进程
+    （以及它可能拉起的子进程）会一直留在机器上，用户看到的就是
+    "检查器跑完了，但还开着几个窗口/进程"。
+    """
+    if manager is None or not key:
+        return
+    entry = manager._entries.get(key)
+    pid = int(getattr(entry, "pid", 0) or 0)
+    try:
+        manager.stop(key, timeout_ms=300, force=True)
+    except (RuntimeError, AttributeError, TypeError):
+        pass
+    if pid:
+        print("    收尾：关闭探针进程 PID {}".format(pid))
+        kill_pid_tree(pid)
+
+
 def main() -> int:
     app = QCoreApplication(sys.argv[:1])
 
@@ -78,6 +115,8 @@ def main() -> int:
     # 先杀掉真进程（模拟 taskkill /F 成功），taskkill 进程稍后才报结束。
     original_sync = ProcessManager._taskkill_sync
     calls = []
+    manager = None
+    key = ""
 
     def fake_taskkill_sync(pid: int) -> bool:
         calls.append(int(pid))
@@ -153,6 +192,8 @@ def main() -> int:
               "0 次说明宽限期太长、没触发强制分支")
     finally:
         ProcessManager._taskkill_sync = original_sync
+        # 兜底收尾：早退 / 异常也不留残留进程（真机踩过这个坑）
+        close_probe(manager, key)
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0

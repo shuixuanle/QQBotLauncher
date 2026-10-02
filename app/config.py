@@ -310,6 +310,36 @@ def split_command_line(command: str) -> List[str]:
     return tokens
 
 
+def strip_arg_quotes(argv: List[str]) -> List[str]:
+    """去掉每个参数**最外层**那一对双引号（只用于"直接交给 QProcess"的路径）。
+
+    为什么必须去掉（真机事故 2026-10-02）
+    ------------------------------------
+    `split_command_line` 是**故意**保留引号的（`cmd /c "a && b"` 必须把引号一起交给
+    cmd）。但 via_shell=False 时，参数是直接交给 QProcess → CreateProcess 的 ——
+    引号会**原样进到子进程的 argv 里**。真机表现（一条命令解释全部现象）：
+
+        python -c "import time; print('probe up'); time.sleep(120)"
+
+    子进程收到的是 `"import time; print('probe up'); time.sleep(120)"`（**带引号**），
+    Python 会把它当成一个**字符串字面量**：语法合法、什么都不做、退出码 0、零输出 ——
+    看起来就像"进程自己立刻正常退出了"。同理，含空格的路径
+    （`java -jar "C:\\Program Files\\x.jar"`）会变成一个"带引号的文件名"。
+
+    规则：只剥"首尾都是双引号"的那一对；`""` → 空串；
+    内部引号按 Windows 规则（`""` 表示一个 `"`）还原。
+    """
+    cleaned: List[str] = []
+    for raw in argv or []:
+        text = "" if raw is None else str(raw)
+        if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        if '""' in text:
+            text = text.replace('""', '"')
+        cleaned.append(text)
+    return cleaned
+
+
 def format_argv(argv: List[str]) -> List[str]:
     """把 argv 拼成便于阅读、也便于复制的命令行片段。
 
@@ -506,7 +536,10 @@ class Program:
             for extra in self.args:
                 argv.extend(split_command_line(expand_env(extra, self.env)))
 
-        return argv
+        # 非 shell 路径最后一步：把"用于分组的引号"去掉再交给 QProcess，
+        # 否则引号会原样进到子进程的 argv（真机事故：`python -c "…"` 的代码
+        # 被当成字符串字面量，进程立刻退出码 0、零输出）。详见 strip_arg_quotes。
+        return strip_arg_quotes(argv)
 
     def display_command(self, base_dir: Path) -> str:
         """给人看的启动命令（用于日志与对话框预览）。"""

@@ -76,6 +76,12 @@ else:
 # 给子进程一点时间真正起来
 time.sleep(2)
 
+# 记下**被拉起的那个子进程**的 PID：它是故意脱离父进程独立活的
+# （关掉启动它的 cmd 也不受影响），所以必须由调用方精确地把它关掉 ——
+# 真机踩过：靠 `taskkill /IM python.exe` 连坐清理时，--gui 拉起的 pythonw.exe
+# 活了下来，屏幕上一个管理器窗口一直开着。
+child_pid = int(ns.get("LAST_RELAUNCH_PID") or 0)
+
 result_file.write_text(
     json.dumps({
         "self_pid": os.getpid(),
@@ -83,6 +89,7 @@ result_file.write_text(
         "before_pid": before_pid,
         "started": bool(started),
         "mode": mode,
+        "child_pid": child_pid,
     }),
     encoding="utf-8",
 )

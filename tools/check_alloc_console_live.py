@@ -75,6 +75,33 @@ except (AttributeError, ValueError):
     pass
 
 
+#: 探针拉起的子进程（那才是"真·管理器窗口"）—— 测完必须精确关掉
+spawned_pids = []
+
+
+def kill_tree(pid) -> bool:
+    """按 PID 关掉整棵进程树。返回是否成功。
+
+    为什么不用 `taskkill /IM python.exe` 那种连坐式清理（真机踩过 2026-10-02）：
+      · 它会把用户自己的 python 进程一起杀掉；
+      · 更要命的是漏杀 —— `--gui` 拉起的是 **pythonw.exe**，按 python.exe 过滤
+        根本杀不到，于是屏幕上一个管理器窗口一直开着
+        （用户原话："启动时会打开几个窗口，但只关一两个"）。
+    现在由 `main.LAST_RELAUNCH_PID` 记录真实子进程 PID，这里按 PID 精确收尾。
+    """
+    if not pid:
+        return False
+    try:
+        completed = subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(int(pid))],
+            capture_output=True, text=True, check=False,
+            encoding="utf-8", errors="replace", timeout=20,
+        )
+        return completed.returncode == 0
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+
 def main() -> int:
     script = ROOT / "tools" / "_alloc_probe.py"
     result_file = ROOT / "tools" / "_alloc_result.json"
@@ -109,6 +136,7 @@ def main() -> int:
 
             info = _json.loads(detach_file.read_text(encoding="utf-8"))
             print("  探针结果 = {}".format(info))
+            spawned_pids.append(int(info.get("child_pid") or 0))
             check_detach("relaunch_with_own_console() 返回 True（已拉起子进程）",
                          info.get("started") is True)
             check_detach("父进程原本有控制台（模拟从 cmd 启动）",
@@ -140,6 +168,7 @@ def main() -> int:
 
             ginfo = _json2.loads(gui_file.read_text(encoding="utf-8"))
             print("  探针结果 = {}".format(ginfo))
+            spawned_pids.append(int(ginfo.get("child_pid") or 0))
             check_detach("relaunch_detached() 返回 True（已拉起 pythonw 子进程）",
                          ginfo.get("started") is True)
         else:
@@ -177,15 +206,7 @@ def main() -> int:
 
         gui_file.unlink(missing_ok=True)
 
-        # 清理探针拉起的子进程（它是个真实的 python 进程，会一直开着控制台窗口）
-        cleanup = subprocess.run(
-            ["taskkill", "/F", "/FI", "IMAGENAME eq python.exe", "/FI",
-             "WINDOWTITLE eq *"],
-            capture_output=True, text=True, check=False,
-        )
-        del cleanup  # 结果不重要，失败也无妨（沙箱可能不允许）
         print()
-
         print("[1] 子进程：从 cmd 启动（本来就有控制台）")
         import os as _os
 
@@ -239,6 +260,17 @@ def main() -> int:
     finally:
         script.unlink(missing_ok=True)
         result_file.unlink(missing_ok=True)
+        # 收尾：把探针拉起的那些**独立窗口进程**关掉（--gui 是 pythonw，
+        # 按进程名过滤杀不到，必须按 PID 收）
+        closed, stuck = [], []
+        for pid in spawned_pids:
+            if not pid:
+                continue
+            (closed if kill_tree(pid) else stuck).append(pid)
+        if spawned_pids:
+            print("  收尾：已关闭探针拉起的窗口进程 {}".format(closed or "（无）"))
+        if stuck:
+            print("  !! 这几个没关掉，请手工在任务管理器里结束：{}".format(stuck))
 
     print()
     print("结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
