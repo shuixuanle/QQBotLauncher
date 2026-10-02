@@ -22,6 +22,7 @@ R2 之前，"颜色"散落在三个文件里：``program_widget`` 的日志区�
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -344,6 +345,187 @@ def resolve_roles(dark: Optional[bool] = None,
     if dark is None:
         dark = is_dark(widget)
     return {role: role_color(role, dark=dark) for role in UI_ROLES}
+
+
+def ansi_palette_for(dark: bool) -> Tuple[str, ...]:
+    """按明暗直接取 ANSI 色板（不看控件，自定义优先）。"""
+    custom = _CUSTOM.get("dark_ansi" if dark else "light_ansi")
+    if isinstance(custom, (tuple, list)) and len(custom) == 16:
+        return tuple(str(item) for item in custom)
+    return ANSI_DARK_COLORS if dark else ANSI_LIGHT_COLORS
+
+
+# ---------------------------------------------------------------------------
+# 配色历史：留下"最近调过什么"，随时能退回去
+#
+# 只存**与内置不同的项**（diff）：既省地方，读起来也一眼能看出改了什么。
+# 记录写在 QSettings 的 colors/history（一个 JSON 数组，最多 COLOR_HISTORY_LIMIT 条）。
+# ---------------------------------------------------------------------------
+
+SETTINGS_COLOR_HISTORY = "colors/history"
+COLOR_HISTORY_LIMIT = 12
+
+
+def compose_role_colors(mode: str, overrides: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """内置角色 + 覆盖 → 完整角色表（纯函数）。"""
+    dark = str(mode).lower() == "dark"
+    result = {role: builtin_role_color(role, dark) for role in UI_ROLES}
+    for role, value in (overrides or {}).items():
+        if role in result and is_hex_color(value):
+            result[role] = normalize_hex(value)
+    return result
+
+
+def diff_role_colors(mode: str, roles: Dict[str, str]) -> Dict[str, str]:
+    """只保留与内置不同的角色（纯函数）；非法值直接丢掉。"""
+    dark = str(mode).lower() == "dark"
+    result: Dict[str, str] = {}
+    for role, value in (roles or {}).items():
+        if role not in UI_ROLES or not is_hex_color(value):
+            continue
+        normalized = normalize_hex(value)
+        if normalized != builtin_role_color(role, dark):
+            result[role] = normalized
+    return result
+
+
+def color_snapshot(mode: str, note: str = "") -> Dict[str, object]:
+    """当前生效配色的快照：`{time, mode, note, roles(仅差异), ansi(仅差异)}`。"""
+    normalized_mode = "dark" if str(mode).lower() == "dark" else "light"
+    dark = normalized_mode == "dark"
+    roles = {role: role_color(role, dark=dark) for role in UI_ROLES}
+    ansi = list(ansi_palette_for(dark))
+    builtin_ansi = list(ANSI_DARK_COLORS if dark else ANSI_LIGHT_COLORS)
+    return {
+        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "mode": normalized_mode,
+        "note": str(note or "")[:60],
+        "roles": diff_role_colors(normalized_mode, roles),
+        "ansi": [] if ansi == builtin_ansi else ansi,
+    }
+
+
+def encode_history_entry(entry: Dict[str, object]) -> str:
+    """一条历史 → 一行 JSON（纯函数，便于单测与人工查看）。"""
+    payload = {
+        "time": str(entry.get("time") or ""),
+        "mode": "dark" if str(entry.get("mode")) == "dark" else "light",
+        "note": str(entry.get("note") or "")[:60],
+        "roles": {str(key): normalize_hex(value)
+                  for key, value in dict(entry.get("roles") or {}).items()
+                  if str(key) in UI_ROLES and is_hex_color(value)},
+        "ansi": [normalize_hex(color) for color in (entry.get("ansi") or [])
+                 if is_hex_color(color)],
+    }
+    if len(payload["ansi"]) != 16:
+        payload["ansi"] = []
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def decode_history_entry(text: object) -> Optional[Dict[str, object]]:
+    """一行 JSON → 一条历史；不合法返回 None（纯函数，坏数据不许把界面搞乱）。"""
+    if isinstance(text, dict):
+        raw = text
+    else:
+        try:
+            raw = json.loads(str(text))
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(raw, dict):
+        return None
+    mode = "dark" if str(raw.get("mode")) == "dark" else "light"
+    roles = {
+        str(key): normalize_hex(value)
+        for key, value in dict(raw.get("roles") or {}).items()
+        if str(key) in UI_ROLES and is_hex_color(value)
+    }
+    ansi = [normalize_hex(item) for item in (raw.get("ansi") or []) if is_hex_color(item)]
+    if len(ansi) != 16:
+        ansi = []
+    return {
+        "time": str(raw.get("time") or ""),
+        "mode": mode,
+        "note": str(raw.get("note") or "")[:60],
+        "roles": roles,
+        "ansi": ansi,
+    }
+
+
+def load_color_history(settings: object = None) -> List[Dict[str, object]]:
+    """读历史（最近的在前）；读不出来就返回空表。"""
+    store = settings_for_colors(settings)
+    if store is None:
+        return []
+    try:
+        raw = store.value(SETTINGS_COLOR_HISTORY, "")
+    except (TypeError, RuntimeError):
+        return []
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        try:
+            items = json.loads(str(raw))
+        except (TypeError, ValueError):
+            return []
+    if not isinstance(items, (list, tuple)):
+        return []
+    entries = []
+    for item in items:
+        entry = decode_history_entry(item)
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+def save_color_history(entries, settings: object = None) -> bool:
+    """写历史（自动截到 COLOR_HISTORY_LIMIT 条）。"""
+    store = settings_for_colors(settings)
+    if store is None:
+        return False
+    encoded = [encode_history_entry(entry) for entry in list(entries or [])]
+    encoded = encoded[:COLOR_HISTORY_LIMIT]
+    try:
+        store.setValue(SETTINGS_COLOR_HISTORY, json.dumps(encoded, ensure_ascii=False))
+        store.sync()
+    except (TypeError, RuntimeError):
+        return False
+    return True
+
+
+def push_color_history(settings: object = None, mode: str = "", note: str = "") -> bool:
+    """把**当前生效配色**记一条到历史（最近的排最前，最多 12 条）。"""
+    entry = color_snapshot(mode or ("dark" if is_dark(None) else "light"), note=note)
+    entries = [entry] + load_color_history(settings)
+    if len(entries) > 1 and encode_history_entry(entries[0]) == encode_history_entry(entries[1]):
+        entries = entries[1:]          # 和上一条完全一样就不重复占位
+    return save_color_history(entries, settings)
+
+
+def clear_color_history(settings: object = None) -> None:
+    """清空历史。"""
+    store = settings_for_colors(settings)
+    if store is None:
+        return
+    try:
+        store.remove(SETTINGS_COLOR_HISTORY)
+        store.sync()
+    except (TypeError, RuntimeError):
+        pass
+
+
+def apply_history_entry(entry: Dict[str, object], settings: object = None) -> bool:
+    """套用一条历史：写进设置 + 运行期覆盖跟着更新（界面由调用方刷新）。"""
+    decoded = decode_history_entry(entry)
+    if decoded is None:
+        return False
+    mode = str(decoded["mode"])
+    roles = dict(decoded["roles"] or {})
+    ansi = list(decoded["ansi"] or [])
+    payload = {"{}_{}".format(mode, role): roles.get(role, "") for role in UI_ROLES}
+    payload["{}_ansi".format(mode)] = ansi if ansi else ()
+    return save_custom_colors(settings, **payload)
 
 
 # ---------------------------------------------------------------------------

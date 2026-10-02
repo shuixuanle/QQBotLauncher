@@ -1412,7 +1412,75 @@ class MainWindow(QMainWindow):
         )
         menu.addAction(self.action_reset_theme)
 
+        menu.addSeparator()
+        self.action_palette_studio = QAction("配色工作台…", self)
+        self.action_palette_studio.setToolTip(
+            "逐个调整界面颜色与日志颜色（深浅各一套）：改一下立即生效，"
+            "点「保存」写进设置并留下一条配色记录"
+        )
+        self.action_palette_studio.triggered.connect(self.open_palette_studio)
+        menu.addAction(self.action_palette_studio)
+
         self._refresh_theme_actions()
+
+    def open_palette_studio(self):
+        """打开配色工作台（改了**立即生效**，不用重启）。
+
+        延迟 import：这个对话框只在用户点菜单时才需要，
+        没必要让它参与启动路径（少一个启动期依赖）。
+        """
+        from app.ui.palette_dialog import PaletteDialog
+
+        dialog = getattr(self, "_palette_dialog", None)
+        if dialog is None:
+            dialog = PaletteDialog(parent=self, dark=theme_tokens.is_dark(self))
+            dialog.colorsChanged.connect(self._on_palette_colors_changed)
+            dialog.colorsSaved.connect(self._on_palette_colors_saved)
+            dialog.finished.connect(self._on_palette_dialog_closed)
+            self._palette_dialog = dialog
+        try:
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+        except RuntimeError:
+            self._palette_dialog = None
+            return None
+        return dialog
+
+    def _on_palette_colors_changed(self) -> None:
+        """配色工作台改了颜色：**立刻**重刷整个界面。
+
+        `_apply_theme()` 已经覆盖了外壳（菜单栏/工具栏/状态栏）、左栏、
+        标签栏、空状态页、所有已打开的实例窗口以及活着的对话框 ——
+        所以这里只要调它一次，用户就能看到"改一下马上变"。
+        """
+        try:
+            self._apply_theme()
+        except (RuntimeError, AttributeError):
+            return
+        try:
+            self.statusBar().showMessage("配色已更新（配色工作台）", 2500)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _on_palette_colors_saved(self) -> None:
+        """工作台保存/清除/套用记录之后：提示一句，并刷新状态栏里的配色信息。"""
+        try:
+            self._apply_theme()
+        except (RuntimeError, AttributeError):
+            pass
+        try:
+            custom = theme_tokens.custom_colors()
+            count = len(custom)
+            self.statusBar().showMessage(
+                "配色已保存：{} 项自定义（重启后依然生效）".format(count)
+                if count else "已恢复内置配色", 4000)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _on_palette_dialog_closed(self, _result: int = 0) -> None:
+        """对话框关掉时把引用放掉（下次再开是全新的，避免读到过期状态）。"""
+        self._palette_dialog = None
 
     def current_theme_mode(self) -> str:
         """当前主题模式（来自 app.ui.theme 的进程内记忆）。"""

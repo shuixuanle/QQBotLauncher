@@ -45,6 +45,7 @@ IMPORT_TARGETS = (
     "app/ui/main_window.py",
     "app/ui/edit_bot_dialog.py",
     "app/ui/bot_list_dialog.py",
+    "app/ui/palette_dialog.py",
     "main.py",
 )
 

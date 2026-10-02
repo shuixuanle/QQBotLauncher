@@ -121,7 +121,7 @@ python main.py --selftest               :: GUI 自检（环境与配置摘要）
 | `check_ansi_log.py` | 日志区把 ANSI 转义序列当普通文字显示；以及深浅色板上读不清的颜色 |
 | `check_ansi_live.py` | 【需 PyQt6】**槽里的异常 = 整个程序退出**（同名函数被覆盖导致的解包错误，真机上就是"闪退"） |
 | `check_duplicate_defs.py` | 同一个模块/类里重名定义，后一个静默覆盖前一个（静态检查全绿，跑起来才炸） |
-| `check_palette_studio.py` | 「配色工作台 → QSettings → 启动载入」这条链路断一环（预览与真机不一致、存了不生效） |
+| `check_palette_studio.py` | 配色链路断一环：菜单入口 / 立即生效 / 存设置 / 启动载入 / 配色记录（预览与真机不一致、存了不生效） |
 | `check_definition_order.py` | 模块级**先用后定义**（`py_compile` 全绿，`python main.py` 一启动就 NameError） |
 
 ### 修 bug 时建议顺手补一条断言

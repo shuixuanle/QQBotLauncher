@@ -39,6 +39,7 @@ PROVIDED = {"is_dark", "_CUSTOM"}
 #: 注入的桩：这些名字在真模块里由 PyQt6 或模块状态提供
 PREAMBLE = '''\
 from __future__ import annotations
+import datetime
 import json
 import os
 import re

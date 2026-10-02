@@ -36,13 +36,16 @@ from _theme_probe import load_theme_namespace                 # noqa: E402
 THEME = ROOT / "app" / "ui" / "theme.py"
 MAIN = ROOT / "main.py"
 STUDIO = ROOT / "tools" / "palette_studio.py"
+DIALOG = ROOT / "app" / "ui" / "palette_dialog.py"
 
 #: 这些函数要抠出来真跑（依赖会被自动带上）
 NEEDED_FUNCTIONS = (
     "parse_palette_text", "is_hex_color", "normalize_hex",
     "relative_luminance", "contrast_ratio",
-    "set_custom_colors", "ansi_palette", "log_colors_for",
+    "set_custom_colors", "ansi_palette", "ansi_palette_for", "log_colors_for",
     "custom_colors", "role_color", "resolve_roles", "builtin_role_color",
+    "compose_role_colors", "diff_role_colors", "color_snapshot",
+    "encode_history_entry", "decode_history_entry",
 )
 
 failures = []
@@ -263,7 +266,45 @@ def run_parse_checks() -> None:
           all(role_color(role, dark=False) == namespace["LIGHT_ROLES"][role]
               for role in ui_roles))
 
-    print("\n[3d] 内置角色的可读性（文字类不能糊成一团）")
+    print("\n[3d] 配色记录（历史）：只存差异、坏数据不许炸")
+    compose = namespace["compose_role_colors"]
+    diff = namespace["diff_role_colors"]
+    encode = namespace["encode_history_entry"]
+    decode = namespace["decode_history_entry"]
+
+    composed = compose("light", {"base": "#123456", "不存在": "#ffffff"})
+    check("compose：覆盖生效、未知角色忽略",
+          composed["base"] == "#123456" and len(composed) == len(ui_roles))
+    check("diff：只留与内置不同的",
+          diff("light", {"base": "#123456", "window": namespace["LIGHT_ROLES"]["window"]})
+          == {"base": "#123456"})
+    check("diff：非法颜色被丢掉", diff("light", {"base": "乱码"}) == {})
+
+    entry = {"time": "2026-10-02 16:00:00", "mode": "light",
+             "note": "浅色模式：改 1 项", "roles": {"base": "#123456"},
+             "ansi": []}
+    text = encode(entry)
+    back = decode(text)
+    check("encode → decode 往返一致",
+          back is not None and back["roles"] == {"base": "#123456"}
+          and back["mode"] == "light" and back["note"] == entry["note"], str(back))
+    check("decode 坏数据返回 None（不炸）",
+          decode("这不是 JSON") is None and decode("{}") is not None)
+    check("decode 会过滤非法角色与颜色",
+          decode('{"mode":"dark","roles":{"base":"乱码","bad":"#112233"}}')["roles"] == {})
+    check("ansi 数量不对就丢弃（不够 16 个不算一套）",
+          decode('{"mode":"light","ansi":["#112233"]}')["ansi"] == [])
+    check("ansi 正好 16 个才保留",
+          len(decode('{"mode":"light","ansi":[%s]}'
+                     % ",".join('"#112233"' for _ in range(16)))["ansi"]) == 16)
+
+    snapshot = namespace["color_snapshot"]("light", note="测试")
+    check("snapshot 带时间 / 模式 / 备注",
+          bool(snapshot["time"]) and snapshot["mode"] == "light" and snapshot["note"] == "测试")
+    check("snapshot 的 roles 是差异（默认应当为空）", snapshot["roles"] == {},
+          str(snapshot["roles"]))
+
+    print("\n[3e] 内置角色的可读性（文字类不能糊成一团）")
     light_roles = namespace["LIGHT_ROLES"]
     dark_roles = namespace["DARK_ROLES"]
     for name, table in (("浅色", light_roles), ("深色", dark_roles)):
@@ -323,29 +364,62 @@ def run_wiring_checks() -> None:
             imported.add(node.module)
             for alias in node.names:
                 imported.add("{}.{}".format(node.module, alias.name))
-    check("工作台导入真控件 ProgramWidget",
-          any("program_widget" in item and "ProgramWidget" in item for item in imported),
-          str(sorted(item for item in imported if "program_widget" in item)))
-    check("工作台导入 theme（色板唯一出处）",
-          any(item.endswith("theme") or item == "app.ui.theme" for item in imported))
+    check("命令行入口复用应用内对话框（PaletteDialog）",
+          any("palette_dialog" in item for item in imported),
+          str(sorted(item for item in imported if "palette" in item)))
+    check("命令行入口不再自己写界面（不出现 Swatch / QGridLayout）",
+          "class Swatch" not in studio_source and "QGridLayout" not in studio_source)
     check("工作台没有自己实现上色（不出现 QTextCharFormat/setForeground）",
           "QTextCharFormat" not in studio_source and "setForeground" not in studio_source)
     check("工作台没有抄一份内置色板",
           builtin_literals(studio_source, "ANSI_LIGHT_COLORS") is None
           and builtin_literals(studio_source, "ANSI_DARK_COLORS") is None)
-    refresh = find_function(studio_tree, "_refresh_all")
-    check("工作台刷新走 load_raw_text（真渲染路径）",
-          refresh is not None and "load_raw_text" in calls_in(refresh))
-    save = find_function(studio_tree, "_on_save")
-    check("保存按钮接到 save_custom_colors",
-          save is not None and "save_custom_colors" in calls_in(save))
-    clear = find_function(studio_tree, "_on_clear")
-    check("清除按钮接到 clear_custom_colors",
-          clear is not None and "clear_custom_colors" in calls_in(clear))
     check("工作台会读回已保存的自定义（load_custom_colors）",
           "load_custom_colors" in calls_in(studio_tree))
 
-    print("\n[7] 全局：不许出现**对象级**的通配 disconnect()（Qt 会刷 wildcard 告警）")
+    print("\n[7] 应用内对话框：菜单入口 + 立即生效 + 配色记录")
+    dialog_source, dialog_tree = get_source(DIALOG)
+    check("palette_dialog.py 有 PaletteDialog", find_function(dialog_tree, "__init__") is not None
+          and any(isinstance(node, ast.ClassDef) and node.name == "PaletteDialog"
+                  for node in ast.walk(dialog_tree)))
+    check("对话框发出 colorsChanged（供立即生效）",
+          any(isinstance(node, ast.Assign)
+              and any(isinstance(t, ast.Name) and t.id == "colorsChanged"
+                      for t in node.targets)
+              for node in ast.walk(dialog_tree)))
+    refresh = find_function(dialog_tree, "_refresh_all")
+    check("_refresh_all 会发 colorsChanged",
+          refresh is not None and "emit" in calls_in(refresh))
+    check("对话框复用真控件与真色板",
+          any("ProgramWidget" in item for item in {
+              "{}.{}".format(node.module, alias.name)
+              for node in ast.walk(dialog_tree)
+              if isinstance(node, ast.ImportFrom) and node.module
+              for alias in node.names}))
+    for name in ("load_color_history", "push_color_history", "apply_history_entry",
+                 "clear_color_history"):
+        check("对话框接了 {}".format(name),
+              any(name in calls_in(node) for node in ast.walk(dialog_tree)
+                  if isinstance(node, ast.FunctionDef)))
+
+    window_tree = ast.parse((ROOT / "app" / "ui" / "main_window.py").read_text(encoding="utf-8"))
+    builder = find_function(window_tree, "_build_theme_actions")
+    menu_texts = {node.value for node in ast.walk(builder or ast.Module(body=[], type_ignores=[]))
+                  if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    check("视图 → 外观 里加了「配色工作台…」",
+          any("配色工作台" in text for text in menu_texts), str(sorted(menu_texts))[:80])
+    check("菜单动作接到 open_palette_studio",
+          builder is not None and "open_palette_studio" in names_in(builder))
+    opener = find_function(window_tree, "open_palette_studio")
+    check("open_palette_studio 延迟导入对话框",
+          opener is not None and "PaletteDialog" in names_in(opener))
+    check("open_palette_studio 把 colorsChanged 接上",
+          opener is not None and "colorsChanged" in names_in(opener))
+    live = find_function(window_tree, "_on_palette_colors_changed")
+    check("改了以后立刻 _apply_theme()（不用重启）",
+          live is not None and "_apply_theme" in calls_in(live))
+
+    print("\n[8] 全局：不许出现**对象级**的通配 disconnect()（Qt 会刷 wildcard 告警）")
     offenders = []
     for path in sorted((ROOT / "app").rglob("*.py")):
         if "__pycache__" in path.parts:
