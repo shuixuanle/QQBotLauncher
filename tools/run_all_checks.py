@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / "tools"
 
 #: 需要 PyQt6 的检查器：没装就跳过（本机没装时不该算失败）
-NEEDS_PYQT6 = {"check_restart_force.py", "check_alloc_console_live.py"}
+#:   · check_ansi_live.py —— 真建一个日志控件喂 ANSI 日志（2026-10-02 的"闪退"就是它挡的那类）
+NEEDS_PYQT6 = {"check_restart_force.py", "check_alloc_console_live.py", "check_ansi_live.py"}
 
 
 def has_pyqt6() -> bool:

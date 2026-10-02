@@ -122,7 +122,8 @@ def run_color_checks() -> None:
     theme_src = theme_path.read_text(encoding="utf-8")
     theme_tree = ast.parse(theme_src)
 
-    wanted = ("ansi_index_rgb", "color_luminance", "readable_rgb", "_hex_color", "ansi_palette")
+    wanted = ("ansi_index_rgb", "color_luminance", "readable_rgb", "_hex_color",
+              "ansi_palette", "log_colors")
     # 第一行必须是 future import：theme.py 顶部就有它，所以那些
     # `Optional[QWidget]` 注解在真模块里不求值；抠出来单独 exec 时若缺这句，
     # 注解会在 def 时求值 → NameError: name 'QWidget' is not defined
@@ -145,7 +146,7 @@ def run_color_checks() -> None:
             value_node = node.value
         else:
             name, value_node = "", None
-        if name.startswith("ANSI_") and value_node is not None:
+        if name.startswith("ANSI_") or name.startswith("LOG_"):
             try:
                 code += "{} = {!r}\n".format(name, ast.literal_eval(value_node))
             except ValueError:
@@ -183,6 +184,66 @@ def run_color_checks() -> None:
           all(len(c) == 7 and c.startswith("#") for c in light), str(light[:3]))
     worst = max(luma(tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))) for c in light)
     check("浅色板里最亮的颜色也读得清（亮度 ≤ 0.62）", worst <= 0.62, "{:.2f}".format(worst))
+
+
+def check_log_colors_arity() -> None:
+    """真跑一遍 `theme.log_colors()`，确认"返回几个值"和调用方的取法对得上。
+
+    真机事故（2026-10-02）：`program_widget._format_for()` 写的是
+    ``base_bg, base_fg = theme_tokens.log_colors(self)``，
+    而这个函数返回**四个**值 `(底色, 文字色, 边框, 选中色)` →
+    `ValueError` 抛在 Qt 信号槽里 → PyQt6 直接终止进程（用户看到"闪退"）。
+
+    现在调用方写成 ``log_colors(self)[:2]``（只取前两个），这里把真实返回抠出来对一遍：
+    长度必须 ≥ 2，且前两个是合法的 `#rrggbb`。
+    """
+    theme_path = ROOT / "app" / "ui" / "theme.py"
+    theme_src = theme_path.read_text(encoding="utf-8")
+    theme_tree = ast.parse(theme_src)
+
+    code = (
+        "from __future__ import annotations\n"
+        "import os\n"
+        "from typing import Optional, Tuple\n"
+        "def is_dark(widget=None):\n"
+        "    return bool(_FORCE_DARK[0])\n"
+        "_FORCE_DARK = [False]\n"
+    )
+    for node in theme_tree.body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value_node = node.target.id, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            name, value_node = node.targets[0].id, node.value
+        else:
+            name, value_node = "", None
+        if (name.startswith("ANSI_") or name.startswith("LOG_")) and value_node is not None:
+            try:
+                code += "{} = {!r}\n".format(name, ast.literal_eval(value_node))
+            except ValueError:
+                continue
+        elif isinstance(node, ast.FunctionDef) and node.name == "log_colors":
+            code += "\n" + (ast.get_source_segment(theme_src, node) or "") + "\n"
+
+    namespace: dict = {}
+    exec(code, namespace)  # noqa: S102 - 只执行本项目自己的纯函数
+    log_colors = namespace["log_colors"]
+
+    for dark in (False, True):
+        namespace["_FORCE_DARK"][0] = dark
+        try:
+            colors = log_colors(None)
+            detail = str(colors)
+            ok = len(colors) >= 2
+            hexes_ok = all(
+                isinstance(item, str) and len(item) == 7 and item.startswith("#")
+                for item in colors[:2]
+            )
+        except Exception as exc:  # noqa: BLE001 - 诊断脚本：异常也要报出来
+            ok, hexes_ok, detail = False, False, "{}: {}".format(type(exc).__name__, exc)
+        label = "{}主题".format("深色" if dark else "浅色")
+        check("log_colors() 至少返回 (底色, 文字色) 两个值（{}）".format(label), ok, detail)
+        check("前两个值是合法十六进制颜色（{}）".format(label), hexes_ok, detail)
 
 
 def main() -> int:
@@ -247,6 +308,9 @@ def main() -> int:
 
     print("\n[7] 色板与可读性（把 theme 里的纯函数抠出来真跑一遍）")
     run_color_checks()
+
+    print("\n[8] `theme.log_colors()` 的返回长度（2026-10-02 闪退的那一条）")
+    check_log_colors_arity()
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0

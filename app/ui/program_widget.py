@@ -49,7 +49,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ansi import AnsiParser, AnsiStyle, has_ansi  # noqa: E402
+from app.ansi import AnsiParser, AnsiStyle, has_ansi, strip_ansi  # noqa: E402
 from app.ui import theme as theme_tokens  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -517,24 +517,48 @@ class ProgramWidget(QWidget):
         self._raw_lines -= drop
 
     def _write_runs(self, content: str) -> None:
-        """把一块文本写进日志区：含 ANSI 就按片段上色，否则走纯文本快速路径。"""
+        """把一块文本写进日志区：含 ANSI 就按片段上色，否则走纯文本快速路径。
+
+        **上色失败绝不允许影响"文字写进去"**（真机事故，2026-10-02）：
+        当时 `_format_for()` 里一个解包错误抛出 `ValueError`，而调用链是
+        `output_text` 信号 → `append_log` → 这里，属于 **Qt 信号槽**；
+        PyQt6 对槽里的未捕获异常会直接终止进程 —— 用户看到的就是"启动实例后闪退"，
+        界面上不给任何提示。显示层的问题不该把整个启动管理器带走，所以：
+
+          · 解析器抛异常 → 重置解析状态，退回"去掉序列的纯文本"；
+          · 上色抛异常 → 这一片段用纯文本写进去（颜色没了，字还在）。
+        """
         cursor = self.editor.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         if not has_ansi(content) and not self._ansi.pending:
             cursor.insertText(content)
             return
-        for part, style in self._ansi.feed(content):
+
+        try:
+            runs = self._ansi.feed(content)
+        except Exception:  # noqa: BLE001 - 见 docstring：显示层不许拖垮程序
+            self._ansi.reset()
+            runs = [(strip_ansi(content), AnsiStyle())]
+
+        for part, style in runs:
             if not part:
                 continue
             if style.is_plain():
                 cursor.insertText(part)
-            else:
+                continue
+            try:
                 cursor.insertText(part, self._format_for(style))
+            except Exception:  # noqa: BLE001 - 同上：颜色没了也要把文字留下
+                cursor.insertText(part)
 
     def _format_for(self, style: AnsiStyle) -> QTextCharFormat:
         """ANSI 样式 → QTextCharFormat（颜色全部来自 theme，深浅各一套）。"""
         fmt = QTextCharFormat()
-        base_bg, base_fg = theme_tokens.log_colors(self)
+        # theme.log_colors() 返回的是**四色**：(底色, 文字色, 边框, 选中背景)，
+        # 这里只用前两个 —— 别再写 `a, b = log_colors(...)`，
+        # 真机事故（2026-10-02）：那样写会 ValueError，而异常发生在 Qt 信号槽里，
+        # PyQt6 会直接终止进程 → 表现为"一启动就闪退"。
+        base_bg, base_fg = theme_tokens.log_colors(self)[:2]
         fg = theme_tokens.ansi_color(style.fg, self) if style.fg is not None else ""
         bg = theme_tokens.ansi_color(style.bg, self) if style.bg is not None else ""
         if style.inverse:

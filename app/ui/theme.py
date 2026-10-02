@@ -636,13 +636,6 @@ def status_colors() -> Dict[str, str]:
 # 日志区还原终端颜色（ANSI）
 # ---------------------------------------------------------------------------
 
-def log_colors(widget: Optional[QWidget] = None) -> Tuple[str, str]:
-    """日志区当前的 (底色, 文字色)。"""
-    if is_dark(widget):
-        return LOG_DARK_BG, LOG_DARK_TEXT
-    return LOG_LIGHT_BG, LOG_LIGHT_TEXT
-
-
 def ansi_palette(widget: Optional[QWidget] = None) -> Tuple[str, ...]:
     """当前主题的 ANSI 16 色。"""
     return ANSI_DARK_COLORS if is_dark(widget) else ANSI_LIGHT_COLORS

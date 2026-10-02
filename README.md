@@ -289,7 +289,7 @@ python main.py
 改完代码想一次跑完所有自检：
 
 ```bat
-python tools\run_all_checks.py          :: 21 个检查器一次跑完，末尾汇总
+python tools\run_all_checks.py          :: 22 个检查器一次跑完，末尾汇总
 python tools\run_all_checks.py -v       :: 额外打印每个检查器的完整输出
 ```
 
@@ -955,7 +955,8 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 - 换主题时日志会**按新色板重画**（原文一直留着），否则深色下配的亮黄亮白
   挪到浅色底上会看不见；复制日志 / 保存出来的文本里**不含**任何转义序列。
 
-自检：`python app\ansi.py`（25 条断言）、`python tools\check_ansi_log.py`。
+自检：`python app\ansi.py`（25 条断言）、`python tools\check_ansi_log.py`，
+以及真机级的 `python tools\check_ansi_live.py`（离屏建一个日志控件真喂一段日志）。
 
 ### 深色模式下日志文字是黑的？
 
@@ -1044,7 +1045,7 @@ QQBot启动管理器/
 │       └── bot_list_dialog.py   # 「查看已有 bot」对话框（状态列表 + 批量操作）
 ├── tools/
 │   ├── run_all_checks.py        # 一次跑完所有检查器（末尾汇总 通过/失败/跳过）
-│   ├── check_*.py               # 21 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
+│   ├── check_*.py               # 22 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
 │   ├── md_anchor.py             # GitHub 标题锚点算法（README 目录生成与校验共用一份）
 │   ├── build_exe.py             # 一键打包两个 exe（普通版 + 管理员版）
 │   └── diagnostics/             # 只读诊断脚本 + README（颜色 dump / 主题自检 / 像素取色）
@@ -1144,7 +1145,7 @@ main.py ──> app.ui.main_window ──> app.ui.bot_tab ──> app.ui.program
 **提问前可以先自查**（能省一轮往返）：
 
 ```bat
-python tools\run_all_checks.py     :: 21 个静态检查一次跑完，多数低级问题这里就报出来了
+python tools\run_all_checks.py     :: 22 个静态检查一次跑完，多数低级问题这里就报出来了
 python main.py --doctor             :: 只做导入与名字体检，不需要图形界面
 ```
 
