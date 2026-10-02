@@ -301,7 +301,11 @@ def setup_theme(app: QApplication, args: StartupArgs) -> str:
 
     顺序：命令行 --theme > QSettings 偏好 > 跟随系统。
     命令行给出的模式默认只影响本次运行（加 --remember-theme 才写入偏好）。
+
+    这里顺便载入**自定义日志配色**（如果有的话）—— 它必须赶在第一次画界面之前
+    进内存，否则日志区会先按内置配色亮一下再变。
     """
+    theme_tokens.load_custom_colors(QSettings(ORG_NAME, APP_NAME))
     mode = args.theme or stored_theme_mode()
     applied = theme_tokens.apply_theme(app, mode, force_palette=args.force_palette)
     if args.theme and args.remember_theme:

@@ -254,6 +254,9 @@ def check_log_colors_arity() -> None:
         "def is_dark(widget=None):\n"
         "    return bool(_FORCE_DARK[0])\n"
         "_FORCE_DARK = [False]\n"
+        # 自定义色板表：这里有它就是空的（没人在工作台里存过色），
+        # 但**必须注入** —— log_colors_for() 会读它
+        "_CUSTOM = {}\n"
     )
     for node in theme_tree.body:
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
@@ -268,7 +271,8 @@ def check_log_colors_arity() -> None:
                 code += "{} = {!r}\n".format(name, ast.literal_eval(value_node))
             except ValueError:
                 continue
-        elif isinstance(node, ast.FunctionDef) and node.name == "log_colors":
+        elif isinstance(node, ast.FunctionDef) and node.name in ("log_colors", "log_colors_for"):
+            # 两个都要：log_colors() 现在只是转发给 log_colors_for()
             code += "\n" + (ast.get_source_segment(theme_src, node) or "") + "\n"
 
     namespace: dict = {}

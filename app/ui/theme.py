@@ -22,8 +22,10 @@ R2 之前，"颜色"散落在三个文件里：``program_widget`` 的日志区�
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Dict, Optional, Tuple
+import re
+from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QSettings, Qt
 from PyQt6.QtGui import QColor, QGuiApplication, QPalette
@@ -154,6 +156,26 @@ ANSI_LIGHT_COLORS: Tuple[str, ...] = (
 #: 于是 256 色 / 真彩色算出来的颜色会被压到同一个"深度"，观感一致。
 ANSI_LIGHT_MAX_LUMA = 0.38
 ANSI_DARK_MIN_LUMA = 0.10
+
+# ---------------------------------------------------------------------------
+# 自定义色板（「日志配色工作台」调出来的颜色；存在 QSettings 里，启动时载入）
+#
+# 支持覆盖的只有**日志区**这一块：
+#   · `light_bg` / `light_fg` / `dark_bg` / `dark_fg` —— 日志区底色与文字色；
+#   · `light_ansi` / `dark_ansi` —— 16 个 ANSI 颜色。
+# 界面其它部分（窗口底色、按钮、左栏）不在这里管，原因很简单：
+# 那些颜色是成套推导出来的（见 nav_palette / chrome_qss），单改一个只会更花。
+# ---------------------------------------------------------------------------
+
+SETTINGS_CUSTOM_LIGHT_ANSI = "colors/light_ansi"
+SETTINGS_CUSTOM_DARK_ANSI = "colors/dark_ansi"
+SETTINGS_CUSTOM_LIGHT_BG = "colors/light_bg"
+SETTINGS_CUSTOM_LIGHT_FG = "colors/light_fg"
+SETTINGS_CUSTOM_DARK_BG = "colors/dark_bg"
+SETTINGS_CUSTOM_DARK_FG = "colors/dark_fg"
+
+#: 运行期的覆盖值（键同上，值是颜色字符串 / 16 色元组）
+_CUSTOM: Dict[str, object] = {}
 
 #: xterm 256 色里 6×6×6 色立方用的六档分量
 ANSI_CUBE_LEVELS: Tuple[int, ...] = (0, 95, 135, 175, 215, 255)
@@ -646,8 +668,253 @@ def status_colors() -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def ansi_palette(widget: Optional[QWidget] = None) -> Tuple[str, ...]:
-    """当前主题的 ANSI 16 色。"""
-    return ANSI_DARK_COLORS if is_dark(widget) else ANSI_LIGHT_COLORS
+    """当前主题的 ANSI 16 色（**自定义色板优先**，没设过就用内置那套）。"""
+    dark = is_dark(widget)
+    custom = _CUSTOM.get("dark_ansi" if dark else "light_ansi")
+    if isinstance(custom, (tuple, list)) and len(custom) == 16:
+        return tuple(str(item) for item in custom)
+    return ANSI_DARK_COLORS if dark else ANSI_LIGHT_COLORS
+
+
+# ---------------------------------------------------------------------------
+# 自定义色板：读写 / 解析（解析函数是纯的，检查器会抠出来单独测）
+# ---------------------------------------------------------------------------
+
+def parse_palette_text(text: object, expected: int = 16) -> Optional[Tuple[str, ...]]:
+    """把配置里的文本解析成颜色元组；格式不对返回 None。
+
+    接受的写法（怎么存都好认）：
+        ``"#1f1f1f,#8d1515,…"``         逗号 / 分号 / 空格分隔
+        ``'["#1f1f1f", "#8d1515", …]'``  JSON 数组（QSettings 存 list 时是这个样子）
+
+    统一输出小写 `#rrggbb`。**纯函数**，不碰 Qt（检查器直接抠出来跑）。
+    """
+    if text is None:
+        return None
+    if isinstance(text, (list, tuple)):
+        items = [str(item) for item in text]
+    else:
+        raw = str(text).strip()
+        if not raw:
+            return None
+        if raw.startswith("["):
+            try:
+                loaded = json.loads(raw)
+            except (ValueError, TypeError):
+                return None
+            if not isinstance(loaded, (list, tuple)):
+                return None
+            items = [str(item) for item in loaded]
+        else:
+            items = [piece for piece in re.split(r"[,;\s]+", raw) if piece]
+
+    colors: list = []
+    for item in items:
+        value = str(item).strip()
+        if not re.fullmatch(r"#?[0-9a-fA-F]{6}", value):
+            return None
+        colors.append("#" + value.lstrip("#").lower())
+    if len(colors) != expected:
+        return None
+    return tuple(colors)
+
+
+def custom_colors() -> Dict[str, object]:
+    """当前生效的自定义覆盖值（副本，改它不会影响运行期状态）。"""
+    return dict(_CUSTOM)
+
+
+def set_custom_colors(
+    light_ansi: object = None,
+    dark_ansi: object = None,
+    light_bg: str = "",
+    light_fg: str = "",
+    dark_bg: str = "",
+    dark_fg: str = "",
+) -> None:
+    """设置运行期的自定义色板（工作台用它做即时预览）。
+
+    传 None 表示"这一项不动"；传**空的**字符串/列表/元组表示"清掉这一项、回到内置"。
+    颜色不合法的项会被忽略（宁可保持原样，也不要把界面弄坏）。
+    """
+    incoming = {
+        "light_ansi": light_ansi,
+        "dark_ansi": dark_ansi,
+        "light_bg": light_bg,
+        "light_fg": light_fg,
+        "dark_bg": dark_bg,
+        "dark_fg": dark_fg,
+    }
+    for key, value in incoming.items():
+        if value is None:
+            continue
+        if key.endswith("_ansi"):
+            if isinstance(value, (str, list, tuple)) and len(value) == 0:
+                _CUSTOM.pop(key, None)          # 显式清空 → 回到内置色板
+                continue
+            parsed = parse_palette_text(value)
+            if parsed is None:
+                continue
+            _CUSTOM[key] = parsed
+            continue
+        text = str(value).strip()
+        if not text:
+            _CUSTOM.pop(key, None)              # 显式清空 → 回到内置颜色
+            continue
+        if is_hex_color(text):
+            _CUSTOM[key] = normalize_hex(text)
+
+
+def settings_for_colors(settings: object = None):
+    """取 QSettings（没传就按本程序的组织名 / 应用名建一个）。"""
+    if settings is not None:
+        return settings
+    try:
+        return QSettings(ORG_NAME, APP_NAME)
+    except (TypeError, RuntimeError):
+        return None
+
+
+def load_custom_colors(settings: object = None) -> bool:
+    """从 QSettings 载入自定义色板（启动时调用）。有载入到东西返回 True。"""
+    store = settings_for_colors(settings)
+    if store is None:
+        return False
+    loaded = False
+    for key, setting_key in (
+        ("light_ansi", SETTINGS_CUSTOM_LIGHT_ANSI),
+        ("dark_ansi", SETTINGS_CUSTOM_DARK_ANSI),
+    ):
+        try:
+            value = store.value(setting_key, "")
+        except (TypeError, RuntimeError):
+            continue
+        parsed = parse_palette_text(value)
+        if parsed is not None:
+            _CUSTOM[key] = parsed
+            loaded = True
+    for key, setting_key in (
+        ("light_bg", SETTINGS_CUSTOM_LIGHT_BG),
+        ("light_fg", SETTINGS_CUSTOM_LIGHT_FG),
+        ("dark_bg", SETTINGS_CUSTOM_DARK_BG),
+        ("dark_fg", SETTINGS_CUSTOM_DARK_FG),
+    ):
+        try:
+            value = str(store.value(setting_key, "") or "").strip()
+        except (TypeError, RuntimeError):
+            continue
+        if value and is_hex_color(value):
+            _CUSTOM[key] = normalize_hex(value)
+            loaded = True
+    return loaded
+
+
+def save_custom_colors(settings: object = None, **values) -> bool:
+    """把自定义色板写进 QSettings（工作台"保存"按钮用）。空值 = 删除该项。"""
+    store = settings_for_colors(settings)
+    if store is None:
+        return False
+    mapping = {
+        "light_ansi": SETTINGS_CUSTOM_LIGHT_ANSI,
+        "dark_ansi": SETTINGS_CUSTOM_DARK_ANSI,
+        "light_bg": SETTINGS_CUSTOM_LIGHT_BG,
+        "light_fg": SETTINGS_CUSTOM_LIGHT_FG,
+        "dark_bg": SETTINGS_CUSTOM_DARK_BG,
+        "dark_fg": SETTINGS_CUSTOM_DARK_FG,
+    }
+    for key, value in (values or {}).items():
+        setting_key = mapping.get(key)
+        if setting_key is None:
+            continue
+        if value is None or (isinstance(value, str) and not value.strip()):
+            try:
+                store.remove(setting_key)
+            except (TypeError, RuntimeError):
+                continue
+            _CUSTOM.pop(key, None)
+            continue
+        if key.endswith("_ansi"):
+            parsed = parse_palette_text(value)
+            if parsed is None:
+                continue
+            text = ",".join(parsed)
+            _CUSTOM[key] = parsed
+        else:
+            text = normalize_hex(str(value))
+            _CUSTOM[key] = text
+        try:
+            store.setValue(setting_key, text)
+        except (TypeError, RuntimeError):
+            continue
+    try:
+        store.sync()
+    except (AttributeError, RuntimeError):
+        pass
+    return True
+
+
+def clear_custom_colors(settings: object = None) -> None:
+    """清掉自定义色板（回到内置那套）。"""
+    store = settings_for_colors(settings)
+    for setting_key in (
+        SETTINGS_CUSTOM_LIGHT_ANSI, SETTINGS_CUSTOM_DARK_ANSI,
+        SETTINGS_CUSTOM_LIGHT_BG, SETTINGS_CUSTOM_LIGHT_FG,
+        SETTINGS_CUSTOM_DARK_BG, SETTINGS_CUSTOM_DARK_FG,
+    ):
+        if store is not None:
+            try:
+                store.remove(setting_key)
+            except (TypeError, RuntimeError):
+                pass
+    _CUSTOM.clear()
+    if store is not None:
+        try:
+            store.sync()
+        except (AttributeError, RuntimeError):
+            pass
+
+
+def is_hex_color(value: object) -> bool:
+    """是不是 `#rrggbb`（允许省略 `#`）。"""
+    return bool(re.fullmatch(r"#?[0-9a-fA-F]{6}", str(value or "").strip()))
+
+
+def normalize_hex(value: object) -> str:
+    """统一成小写 `#rrggbb`。"""
+    text = str(value or "").strip().lstrip("#").lower()
+    return "#" + text
+
+
+def relative_luminance(color: str) -> float:
+    """WCAG 相对亮度（0=黑，1=白）。纯字符串运算，不需要 Qt。
+
+    注意与 :func:`color_luminance` 的区别：那个是"大概够不够亮"的近似值
+    （给压暗/提亮用，不做 sRGB 线性化）；这个是**标准公式**，
+    专门用来算对比度、判断"这行字在日志区底色上读不读得清"。
+    """
+    text = str(color or "").strip().lstrip("#")
+    if len(text) != 6:
+        return 0.0
+    try:
+        channels = [int(text[index:index + 2], 16) / 255.0 for index in (0, 2, 4)]
+    except ValueError:
+        return 0.0
+    linear = [
+        value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+        for value in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def contrast_ratio(color_a: str, color_b: str) -> float:
+    """两个颜色的 WCAG 对比度（1.0-21.0）。
+
+    经验值：正文 ≥ 4.5 算合格（AA），≥ 7 算舒服（AAA），
+    ≥ 10 基本"一眼就看见"。色板里每个颜色都应该 ≥ 4.5。
+    """
+    first, second = relative_luminance(color_a), relative_luminance(color_b)
+    high, low = max(first, second), min(first, second)
+    return (high + 0.05) / (low + 0.05)
 
 
 def ansi_index_rgb(index: int) -> Tuple[int, int, int]:
@@ -821,6 +1088,25 @@ def _disabled_text_color(widget: Optional[QWidget] = None) -> str:
         return "#7a7a7a"
 
 
+def log_colors_for(dark: bool) -> Tuple[str, str, str, str]:
+    """日志区四色：(背景, 文字, 边框, 选中背景)。
+
+    底色与文字色**允许被自定义色板覆盖**（工作台里调出来的值）；
+    边框与选中色始终用内置的 —— 它们和界面其它部分要配套。
+    """
+    if dark:
+        background, text, border, selection = (
+            LOG_DARK_BG, LOG_DARK_TEXT, LOG_DARK_BORDER, LOG_DARK_SELECTION)
+        keys = ("dark_bg", "dark_fg")
+    else:
+        background, text, border, selection = (
+            LOG_LIGHT_BG, LOG_LIGHT_TEXT, LOG_LIGHT_BORDER, LOG_LIGHT_SELECTION)
+        keys = ("light_bg", "light_fg")
+    background = str(_CUSTOM.get(keys[0]) or background)
+    text = str(_CUSTOM.get(keys[1]) or text)
+    return background, text, border, selection
+
+
 def log_colors(widget: Optional[QWidget] = None) -> Tuple[str, str, str, str]:
     """日志区四色：(背景, 文字, 边框, 选中背景)。
 
@@ -828,10 +1114,9 @@ def log_colors(widget: Optional[QWidget] = None) -> Tuple[str, str, str, str]:
     原因（真机实测）：调色板到底有没有被 Qt 采用、什么时候采用，不受我们控制；
     日志区作为"主要内容区"，配色必须可预测 —— 深色深底浅字、浅色柔和黄灰底近黑字。
     跟随系统时用系统给的明暗（`is_dark()`）来二选一。
+    自定义色板（工作台里调的）优先于常量。
     """
-    if is_dark(widget):
-        return LOG_DARK_BG, LOG_DARK_TEXT, LOG_DARK_BORDER, LOG_DARK_SELECTION
-    return LOG_LIGHT_BG, LOG_LIGHT_TEXT, LOG_LIGHT_BORDER, LOG_LIGHT_SELECTION
+    return log_colors_for(is_dark(widget))
 
 
 def _contrast_ok(color_a: str, color_b: str, min_delta: int = 40) -> bool:
@@ -857,11 +1142,7 @@ def apply_log_palette(editor: "QPlainTextEdit", dark: bool) -> Tuple[str, str, s
 
     返回实际使用的 (背景, 文字, 边框, 选中背景)。
     """
-    bg, fg, border, sel = (
-        (LOG_DARK_BG, LOG_DARK_TEXT, LOG_DARK_BORDER, LOG_DARK_SELECTION)
-        if dark
-        else (LOG_LIGHT_BG, LOG_LIGHT_TEXT, LOG_LIGHT_BORDER, LOG_LIGHT_SELECTION)
-    )
+    bg, fg, border, sel = log_colors_for(bool(dark))
     try:
         palette = QPalette(editor.palette())
         for role, color in (

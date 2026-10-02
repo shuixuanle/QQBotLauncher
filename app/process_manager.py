@@ -1141,10 +1141,32 @@ class ProcessManager(QObject):
             return False
 
     def _dispose(self, entry: RunningProcess) -> None:
-        """断开信号并销毁 QProcess，避免野信号与句柄泄漏。"""
+        """断开信号并销毁 QProcess，避免野信号与句柄泄漏。
+
+        注意：**不要**用无参数的 ``process.disconnect()``（通配断开）。
+        真机控制台会因此在退出时刷一句
+        ``QObject::disconnect: wildcard call disconnects from destroyed signal of QProcess``
+        —— 它要遍历该对象的所有连接，其中一条的发送者可能已经销毁。
+        这里只断开我们真正连过的那几个信号（见 `start()`）。
+        """
         process = entry.process
+        # 四个信号逐个断开（都是 `start()` 里连过的那几条）。
+        # 写成四条显式调用而不是循环 + 局部变量：一眼能看出断的是哪几条，
+        # 也方便 `tools/check_palette_studio.py` 静态拦住"对象级通配 disconnect"。
         try:
-            process.disconnect()
+            process.readyReadStandardOutput.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            process.started.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            process.finished.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            process.errorOccurred.disconnect()
         except (RuntimeError, TypeError):
             pass
         try:
