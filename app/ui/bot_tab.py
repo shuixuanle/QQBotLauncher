@@ -707,6 +707,9 @@ class BotTab(QWidget):
         self._working_dirs: Dict[str, str] = {}
         #: 视图创建前到达的日志，先缓冲再补写
         self._pending_logs: Dict[str, List[str]] = {}
+        #: 是否显示管理器自身日志（[管理器] …）；由运行参数里的开关通过
+        #: set_show_manager_log() 设置 —— 默认显示（和以前一样）
+        self._show_manager_log: bool = True
         #: key -> 运行状态
         self._states: Dict[str, str] = {}
 
@@ -1400,9 +1403,26 @@ class BotTab(QWidget):
             except (RuntimeError, TypeError):
                 pass
 
-    def _on_output_text(self, key: str, text: str, _channel: str = "") -> None:
+    def _on_output_text(self, key: str, text: str, channel: str = "") -> None:
+        """一段输出到了 —— 管理器自己的日志是否显示，在这里按 channel 过滤。
+
+        真机事故（2026-10-03）：管理器日志以前有**两条**写入路径 ——
+        `ProcessManager._log()` 既发 `output_text`（前缀 `[管理器] `），
+        MainWindow 又把 `log_message` 转成同样的文本 append 一次。
+        于是**每条管理器日志都显示两遍**，而「运行参数 → 把管理器自身日志也写入窗口」
+        这个开关也形同虚设（关掉也照样显示）。
+
+        现在只保留 `output_text` 这一条路径；开关通过 set_show_manager_log()
+        传进来，按 channel == "manager" 过滤。
+        """
+        if channel == "manager" and not self._show_manager_log:
+            return
         if key in self._views or key in self._order:
             self.append_log(key, text)
+
+    def set_show_manager_log(self, enabled: bool) -> None:
+        """是否把管理器自身日志（`[管理器] …`）显示在日志区（运行参数里的开关）。"""
+        self._show_manager_log = bool(enabled)
 
     def _on_state_changed(self, key: str, state: str, _message: str = "") -> None:
         if key not in self._views:

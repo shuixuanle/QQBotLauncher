@@ -106,6 +106,25 @@ def main() -> int:
               "字 {:.0f} / 底 {:.0f}".format(lightness(fg), lightness(bg)))
 
     print("\n[3] 切换布局保留日志")
+    print("\n[3c] 管理器日志只能有一条写入路径（真机 2026-10-03：每条都显示两遍）")
+    #  以前 ProcessManager._log() 发 output_text，MainWindow 又把 log_message
+    #  转成同样的文本 append 一次 → 每条 [管理器] … 都出现两遍，而且
+    #  「运行参数 → 把管理器自身日志也写入窗口」这个开关也关不掉。
+    main_src = (ROOT / "app" / "ui" / "main_window.py").read_text(encoding="utf-8")
+    manager_src = (ROOT / "app" / "process_manager.py").read_text(encoding="utf-8")
+    tab_src = (ROOT / "app" / "ui" / "bot_tab.py").read_text(encoding="utf-8")
+    check("MainWindow 里不再有第二条写入路径（[管理器] 只由 output_text 带过去）",
+          '"[管理器] {}' not in main_src and "'[管理器] '" not in main_src)
+    check("ProcessManager._log 仍然发 output_text（检查器靠它读管理器日志）",
+          'self._emit("output_text", key or "", "[管理器] "' in manager_src)
+    check("BotTab 按 channel == \"manager\" 过滤（开关才有效）",
+          '"manager"' in tab_src and "channel == " in tab_src)
+    check("BotTab 提供 set_show_manager_log()", "def set_show_manager_log" in tab_src)
+    check("BotTab 默认显示管理器日志（老行为不变）",
+          "_show_manager_log: bool = True" in tab_src)
+    check("MainWindow 会把开关推给窗口", "_sync_manager_log_flag" in main_src
+          and "set_show_manager_log" in main_src)
+
     print("\n[3b] 换主题必须重画**纯文本**日志（真机 2026-10-03：深色下白底黑字）")
     widget_path = ROOT / "app" / "ui" / "program_widget.py"
     widget_source = widget_path.read_text(encoding="utf-8")

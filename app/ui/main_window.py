@@ -619,7 +619,14 @@ class MainWindow(QMainWindow):
         self.manager = ProcessManager(self)
         self.manager.set_config_provider(self._find_program)
         self.manager.state_changed.connect(self._on_state_changed)
-        self.manager.log_message.connect(self._on_manager_log)
+        # 注意：**不要**再把 log_message 也写进日志区。
+        # 真机事故（2026-10-03）：管理器日志以前有两条写入路径 ——
+        #   · ProcessManager._log() 发 output_text（带 "[管理器] " 前缀，见 BotTab）
+        #   · 这里把 log_message 也 append 一次
+        # 结果是每条管理器日志都显示两遍，而且「运行参数 → 把管理器自身日志也写入
+        # 窗口」这个开关关不掉它（output_text 那条路不看开关）。
+        # 现在只保留 output_text 这一条；开关按 channel == "manager" 在 BotTab 过滤
+        # （见 BotTab.set_show_manager_log / _on_output_text）。
 
         # ---- 状态 ----
         #: bot_id -> BotTab（已打开窗口的机器人）
@@ -781,6 +788,7 @@ class MainWindow(QMainWindow):
         self.stop_timeout = float(values["stop_timeout"])
         self.log_max_lines = int(values["log_max_lines"])
         self._show_manager_log = bool(values["show_manager_log"])
+        self._sync_manager_log_flag()      # 立刻推给已打开的窗口（开关要即时生效）
         self._force_stop_on_close = bool(values.get("force_stop_on_close", False))
         try:
             self._settings.setValue(
@@ -3600,14 +3608,19 @@ class MainWindow(QMainWindow):
                 "{} - 已打开 {} 个窗口".format(APP_NAME, len(self._tabs))
             )
 
-    def _on_manager_log(self, key: str, message: str) -> None:
-        """把管理器日志写入对应窗口（可在运行参数里关闭）。"""
-        if not self._show_manager_log or not key:
-            return
+    def _sync_manager_log_flag(self) -> None:
+        """把「把管理器自身日志也写入窗口」这个开关推给所有已打开的窗口。
+
+        以前这里是 `_on_manager_log()`：把 `log_message` 再 append 一遍 ——
+        而 `ProcessManager._log()` 早就通过 `output_text` 发过同样的文本了，
+        于是**每条管理器日志显示两遍**，开关也关不掉（真机事故 2026-10-03）。
+        现在只保留 `output_text` 一条路径，开关按 channel 在 BotTab 过滤。
+        """
         for tab in self._tabs.values():
-            if key in tab.all_keys() or tab.log_view(key) is not None:
-                tab.append_log(key, "[管理器] {}\n".format(message))
-                return
+            try:
+                tab.set_show_manager_log(self._show_manager_log)
+            except (RuntimeError, AttributeError):
+                pass
 
     def _on_state_changed(self, key: str, _state: str, _message: str = "") -> None:
         """状态变化：刷新状态栏，并合并刷新左侧列表里对应的那一项。
@@ -3779,6 +3792,10 @@ class MainWindow(QMainWindow):
         # （真机事故：bot_name 被当方法调用 → 整个窗口打不开、日志界面进不去）
         self._safe_sync_bot_tab_bar()
         self._tabs[bot_id] = tab
+        try:
+            tab.set_show_manager_log(self._show_manager_log)   # 新窗口沿用当前开关
+        except (RuntimeError, AttributeError):
+            pass
 
         # 布局偏好（模板 + 比例 + 焦点）优先，其次才是历史遗留的 split/<bot_id>
         if not self._restore_pane_layout(bot_id, tab):
