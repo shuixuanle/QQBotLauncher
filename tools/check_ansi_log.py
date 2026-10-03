@@ -289,8 +289,8 @@ def main() -> int:
     apply_theme = find_function(tree, "apply_theme")
     if apply_theme is not None:
         names = calls_in(apply_theme)
-        check("apply_theme 会按新主题重画（_rerender_if_colored）",
-              "_rerender_if_colored" in names, str(sorted(names)))
+        check("apply_theme 会按新主题重画（_rerender_all / _rerender_if_colored）",
+              "_rerender_all" in names or "_rerender_if_colored" in names, str(sorted(names)))
 
     capture = find_function(tab_tree, "_capture_log_texts")
     if capture is not None:

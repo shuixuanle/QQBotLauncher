@@ -106,6 +106,35 @@ def main() -> int:
               "字 {:.0f} / 底 {:.0f}".format(lightness(fg), lightness(bg)))
 
     print("\n[3] 切换布局保留日志")
+    print("\n[3b] 换主题必须重画**纯文本**日志（真机 2026-10-03：深色下白底黑字）")
+    widget_path = ROOT / "app" / "ui" / "program_widget.py"
+    widget_source = widget_path.read_text(encoding="utf-8")
+    widget_tree = ast.parse(widget_source)
+
+    def widget_method(name):
+        node = find_func(widget_tree, name, cls="ProgramWidget")
+        return ast.get_source_segment(widget_source, node) or "" if node else ""
+
+    apply_src = widget_method("apply_theme")
+    rerender_src = (widget_method("_rerender_all")
+                    or widget_method("_rerender_if_colored"))
+    check("找得到 ProgramWidget.apply_theme", bool(apply_src))
+    check("apply_theme 会触发重画", "_rerender_all" in apply_src
+          or "_rerender_if_colored" in apply_src)
+    #  只在**代码**里找（文档字符串里正解释着这个坑，别把说明文字当代码）
+    rerender_node = (find_func(widget_tree, "_rerender_all", cls="ProgramWidget")
+                     or find_func(widget_tree, "_rerender_if_colored", cls="ProgramWidget"))
+    guarded = []
+    for child in ast.walk(rerender_node) if rerender_node else []:
+        if isinstance(child, ast.If):
+            condition = ast.get_source_segment(widget_source, child.test) or ""
+            if "has_ansi" in condition:
+                guarded.append(condition[:60])
+    check("重画里**没有** has_ansi 早退（纯文本段也带着写死的颜色，必须一起重画）",
+          not guarded, str(guarded))
+    check("重画前先 clear（否则变成追加一份）", "clear()" in rerender_src)
+    check("重画会按当前主题重新写入", "_write_runs" in rerender_src)
+
     capture = find_func(tab_tree, "_capture_log_texts", cls="BotTab")
     restore = find_func(tab_tree, "_restore_log_texts", cls="BotTab")
     check("存在 _capture_log_texts", capture is not None)

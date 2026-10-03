@@ -387,19 +387,35 @@ class ProgramWidget(QWidget):
     def apply_theme(self) -> None:
         """主题变化时重新套用样式（由主窗口在切换/系统变化时调用）。
 
-        日志里可能带 ANSI 颜色 —— 那些颜色是**按旧主题**选的（深色下配的亮黄
-        亮白挪到浅色底上根本看不见），所以有颜色的日志要用新色板重画一遍；
-        纯文本日志没有颜色，直接跳过（省一次全量重绘）。
+        日志里每一段文字（**包括没有颜色的纯文本段**）插入时都把前景/背景
+        写死成"当时主题"的颜色 —— 不写死就会继承上一段（见 `_write_runs`）。
+        所以换主题时必须**整段重画**，否则纯文本日志会留着旧主题的颜色。
         """
         try:
             self._apply_style()
         except RuntimeError:
             return
-        self._rerender_if_colored()
+        self._rerender_all()
 
     def _rerender_if_colored(self) -> None:
-        """用当前主题把日志重画一遍（滚动位置按比例还原）。"""
-        if not has_ansi(self._raw_text):
+        """旧名字，保留给已有调用点；现在**总是**重画（原因见 `_rerender_all`）。"""
+        self._rerender_all()
+
+    def _rerender_all(self) -> None:
+        """用当前主题把整个日志重画一遍（滚动位置按比例还原）。
+
+        为什么不再"只有带 ANSI 才重画"（真机事故 2026-10-03）
+        ----------------------------------------------------
+        以前这里是 `if not has_ansi(self._raw_text): return` —— 想着"纯文本日志
+        没有颜色，省一次全量重绘"。但这是错的：**纯文本段同样带着写死的颜色**
+        （`_format_for()` 会把 fg/bg 都写全，否则 Qt 会让它继承上一段）。
+        于是浅色 → 深色时，不含 ANSI 的日志（管理器自己那些 `[管理器] …`、
+        以及不带颜色的程序输出）**不会被重画**，仍然是浅色主题的白底黑字。
+
+        用户的原话就是这条：**"深色模式下不带颜色的日志内容出现白底黑字"**。
+        重画的代价只是把最近 max_lines 行重写一遍，而换主题是低频操作，值。
+        """
+        if not self._raw_text:
             return
         try:
             scrollbar = self.editor.verticalScrollBar()

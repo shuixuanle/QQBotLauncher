@@ -182,6 +182,45 @@ def main() -> int:
             check("{} 主题下 INFO 行的颜色 = {}".format(mode, expect),
                   colors == {expect}, str(sorted(colors)))
 
+    # ------------------------------------------------------------------
+    print("\n[6] 回归：**没有颜色**的日志换主题后也必须换色（真机 2026-10-03）")
+    #  用户原话："深色模式下不带颜色的日志内容出现白底黑字"。
+    #  根因：每段文字插入时都把 fg/bg 写死成当时主题的颜色（不写死会继承上一段），
+    #  而换主题时只有"含 ANSI"的日志会被重画 —— 纯文本日志被跳过，
+    #  于是留着浅色主题的白底黑字。
+    plain_dump = ("[管理器] 启动命令：ollama serve\n"
+                  "time=2026-10-03T08:26:29.930+08:00 level=INFO msg=\"server config\"\n")
+    backgrounds = {}
+    for mode in ("light", "dark"):
+        theme_tokens.apply_theme(app, mode)
+        widget.clear_log()
+        widget.append_log(plain_dump)
+        bg_now, fg_now = theme_tokens.log_colors(widget)[:2]
+        frags = line_fragments(widget, 0)
+        backgrounds[mode] = ({color_of(fmt) for _t, fmt in frags},
+                             {fmt.background().color().name().lower() for _t, fmt in frags},
+                             bg_now.lower())
+        # 换一次主题（这正是出问题的那一步）
+        other = "dark" if mode == "light" else "light"
+        theme_tokens.apply_theme(app, other)
+        widget.apply_theme()                       # 控件自己重画
+        after_bg = {fmt.background().color().name().lower()
+                    for _t, fmt in line_fragments(widget, 0)}
+        expect_bg = theme_tokens.log_colors(widget)[0].lower()
+        check("{} → {}：纯文本行的背景跟着变成 {}".format(mode, other, expect_bg),
+              after_bg == {expect_bg},
+              "实际 {}".format(sorted(after_bg)))
+        check("{} → {}：文字色也跟着变".format(mode, other),
+              {color_of(fmt) for _t, fmt in line_fragments(widget, 0)}
+              == {theme_tokens.log_colors(widget)[1]},
+              "实际 {}".format(sorted({color_of(fmt) for _t, fmt in line_fragments(widget, 0)})))
+        check("{} → {}：内容一字不差".format(mode, other),
+              widget.text() == plain_dump, repr(widget.text()[:40]))
+    if len(backgrounds) == 2:
+        check("两套主题下纯文本行的底色本来就不同（所以必须重画）",
+              backgrounds["light"][2] != backgrounds["dark"][2],
+              "浅 {} / 深 {}".format(backgrounds["light"][2], backgrounds["dark"][2]))
+
     widget.close()
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
