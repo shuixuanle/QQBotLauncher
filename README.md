@@ -25,6 +25,7 @@
 > 真实在用的 4 个实例：Java(jar) + Node(yarn) + .NET(dotnet) + Python(uv) + Ollama + 批处理，
 > 可作为"怎么把一类 bot 接进来"的参照。
 
+<a id="怎么跑起来先看这里"></a>
 ### 怎么跑起来（先看这里）
 
 | 你的情况 | 做什么 |
@@ -192,6 +193,7 @@
 
 ---
 
+<a id="一安装依赖"></a>
 ## 一、安装依赖
 
 推荐先建虚拟环境（可选但更干净）：
@@ -220,8 +222,10 @@ PyQt6>=6.6.0
 
 ---
 
+<a id="二运行方法"></a>
 ## 二、运行方法
 
+<a id="在-cmd-里启动时那个窗口能关吗"></a>
 ### 在 cmd 里启动时，那个窗口能关吗？
 
 **直接敲 `python main.py` 时不能关** —— `python.exe` 会把那个 cmd 当作自己的控制台，
@@ -236,6 +240,7 @@ PyQt6>=6.6.0
 日常使用直接双击 `启动（普通模式）.bat` 即可，它用 `start "" pythonw.exe main.py`
 分离启动，管理器不占用你的 cmd。
 
+<a id="0-双击启动推荐"></a>
 ### 0. 双击启动（推荐）
 
 | 方式 | 文件 | 控制台 | 需要 Python | 定位 |
@@ -259,6 +264,7 @@ PyQt6>=6.6.0
 细节（含"让 cmd 窗口变得不重要"的做法、exe 打包、安全警报的三种解法）见
 [启动方式说明.md](启动方式说明.md)。
 
+<a id="1-正常启动图形界面"></a>
 ### 1. 正常启动（图形界面）
 
 ```bat
@@ -404,6 +410,7 @@ tools\run_all_checks.bat                :: 同上，双击也能跑（自动切 
 > `［2/3］` 表示 3 个程序里有 2 个在运行；`★` 为主程序。
 > 菜单「帮助 → 状态图例与快捷键…」里有同一份说明。
 
+<a id="31-界面布局左侧竖栏-右侧实例区"></a>
 ### 3.1 界面布局（左侧竖栏 + 右侧实例区）
 
 ```
@@ -435,6 +442,7 @@ tools\run_all_checks.bat                :: 同上，双击也能跑（自动切 
 - 左栏右侧的分割条可拖动调整宽度；`Ctrl+L` 或「视图 → 折叠左侧列表」可整栏折叠；
   宽度比例、展开的机器人、当前窗口都会记入 QSettings，下次启动自动恢复。
 
+<a id="32-右侧分屏布局每个程序一格-cmd终端"></a>
 ### 3.2 右侧分屏布局（每个程序一格 cmd/终端）
 
 一个机器人有多个程序时，右侧可以切成若干**窗格**，每个窗格显示某一个程序的
@@ -483,6 +491,7 @@ cmd / 终端实时输出（就是日志面板本身，按程序 key 分发，彼
 > 小技巧：程序很多时用「单窗格 + 全部标签」省地方；盯两个程序时用「左右分屏」；
 > 三个程序想看全部时用「左右分，右侧再上下分」。
 
+<a id="33-外观浅色-深色-跟随系统"></a>
 ### 3.3 外观（浅色 / 深色 / 跟随系统）
 
 三种模式，**切换立即生效**（不用重启，也不用点确定）：
@@ -559,6 +568,7 @@ python main.py --theme-debug
 | `hint` | `QStyleHints.colorScheme()` 的值（会被我们自己设过，仅作参考） |
 | `Window亮度` | 调色板 Window 角色的亮度：深色应 < 128、浅色应 ≥ 128 |
 
+<a id="34-配色工作台整个界面的颜色都能自己调改了立即生效"></a>
 ### 3.4 配色工作台：整个界面的颜色都能自己调，**改了立即生效**
 
 **界面里每一个部位的颜色和文字颜色，全都能改**（深浅两套各调各的）。
@@ -594,10 +604,12 @@ python main.py --theme-debug
 > `python tools\check_palette_studio.py` 盯着整条链路：**菜单入口 → 对话框 → 立即生效 →
 > 存设置 → 启动载入 → 配色记录**，以及**每个角色是否真的可覆盖**（15 个角色逐个试一遍）。
 
+<a id="4-配置文件是怎么写入的先看这节"></a>
 ### 4. 配置文件是怎么写入的（先看这节）
 
 `bots_config.json` **不需要你手写**。它有两条正道，按推荐顺序：
 
+<a id="方式一在界面上新建-编辑推荐日常都用这个"></a>
 #### 方式一：在界面上新建 / 编辑（推荐，日常都用这个）
 
 程序**第一次运行**时，如果找不到 `bots_config.json`，会自动写入一份**默认配置**
@@ -614,11 +626,13 @@ python main.py --theme-debug
 `BotConfig.save()`），采用"先写临时文件再原子替换"的方式，写坏了也不会丢原文件。
 文件若损坏，会被备份成 `bots_config.json.broken-<时间戳>` 并重建默认配置。
 
+<a id="方式二直接编辑-json批量改-版本管理时用"></a>
 #### 方式二：直接编辑 JSON（批量改 / 版本管理时用）
 
 工具栏 **打开配置文件**（Ctrl+Shift+O）会用系统默认程序打开它；保存后在管理器的
 **机器人**菜单里重新载入即可生效。
 
+<a id="方式三从别处拷一份"></a>
 #### 方式三：从别处拷一份
 
 `bots_config.json` 就是一个纯 JSON，可以拷来拷去。注意两点：
@@ -694,6 +708,7 @@ python main.py --theme-debug
 
 ---
 
+<a id="三打包成无控制台-exepyinstaller"></a>
 ## 三、打包成无控制台 EXE（PyInstaller）
 
 ### 1. 安装 PyInstaller
@@ -730,6 +745,7 @@ pyinstaller --noconfirm --clean --onefile --windowed ^
 
 打包结果：`dist\QQBot启动管理器.exe`。
 
+<a id="3-用-spec-文件打包推荐便于重复构建"></a>
 ### 3. 用 spec 文件打包（推荐，便于重复构建）
 
 先执行一次上面的命令生成 spec，然后把 `QQBot启动管理器.spec` 的内容改成下面这样，之后每次只需 `pyinstaller --noconfirm "QQBot启动管理器.spec"`：
@@ -776,6 +792,7 @@ exe = EXE(
 pyinstaller --noconfirm --clean "QQBot启动管理器.spec"
 ```
 
+<a id="35-一键打包推荐两个双击即用的-exe"></a>
 ### 3.5 一键打包（推荐）：两个"双击即用"的 exe
 
 本目录已带好全套 spec，直接用项目里的脚本即可：
@@ -829,6 +846,7 @@ D:\QQBot\                       ← 建议的部署目录
 
 ---
 
+<a id="四botsconfigjson-放在哪里"></a>
 ## 四、bots_config.json 放在哪里
 
 程序按下面的顺序定位配置文件，先命中先用：
@@ -849,6 +867,7 @@ D:\QQBot\                       ← 建议的部署目录
 - 文件不存在时会自动生成默认示例配置；也可以在 GUI 里点 **打开配置文件**（`Ctrl+Shift+O`）用记事本直接改，改完按 `F6` 重新载入。
 - 希望换一份配置又不想动默认文件时，用 `--config` 或 `QQBOT_CONFIG` 指向新文件即可，程序会记住这个路径。
 
+<a id="界面状态的存放位置qsettings"></a>
 ### 界面状态的存放位置（QSettings）
 
 除配置文件外，程序还用注册表保存界面状态（不写任何文件）：
@@ -875,6 +894,7 @@ HKEY_CURRENT_USER\Software\QQBotLauncher\QQBot启动管理器
 | `config/path` | 上次使用的配置文件路径（`--config` 会更新它） |
 | `ui/hint_shown` | 是否已经提示过首次使用说明 |
 
+<a id="左侧列表的记忆规则nav-前缀"></a>
 ### 左侧列表的记忆规则（nav 前缀）
 
 | 键 | 含义 | 默认（无记录时） |
@@ -918,6 +938,7 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器" /f
 
 ---
 
+<a id="五常见问题"></a>
 ## 五、常见问题
 
 **1. 双击 exe 一闪而过 / 没有任何反应**
@@ -1014,6 +1035,7 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 
 ---
 
+<a id="日志里那些-3220m0m-是什么"></a>
 ### 日志里那些 `[32;20m`、`[0m` 是什么？
 
 那是**程序自己写出来的 ANSI 转义序列**（终端用它们来上色）。机器人检测到
@@ -1042,6 +1064,7 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 自检：`python app\ansi.py`（25 条断言）、`python tools\check_ansi_log.py`，
 以及真机级的 `python tools\check_ansi_live.py`（离屏建一个日志控件真喂一段日志）。
 
+<a id="深色模式下日志文字是黑的"></a>
 ### 深色模式下日志文字是黑的？
 
 已在 N2.10 修复。原因是日志区此前**只把颜色设进控件调色板**，样式表里只有边框 ——
@@ -1053,6 +1076,7 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 明确颜色，无论 Qt 走哪条都不会再出现黑字。自检项 `[12.5]` 与
 `tools\check_log_pane.py` 都会断言这一点。
 
+<a id="命令里带引号的参数含空格的路径能正常启动吗"></a>
 ### 命令里带引号的参数、含空格的路径能正常启动吗？
 
 能。命令行会先按引号分组拆成参数，再**把分组用的引号去掉**交给进程
@@ -1064,6 +1088,7 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 > 看起来就像"进程自己正常退出了"。含空格的路径（`-jar "C:\Program Files\x.jar"`）
 > 同理会被当成"带引号的文件名"。现在由 `tools\check_command_argv.py` 盯着。
 
+<a id="切换日志区布局后日志内容没了"></a>
 ### 切换日志区布局后日志内容没了？
 
 已在 N2.10 修复。原因：切换布局会重建整棵窗格树（`self._views = {}` +
@@ -1078,6 +1103,7 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 
 自检项 `[12.y]` 会依次切到 `v / h / single / tabs` 四种布局并断言标记行仍在。
 
+<a id="窗格上的启动停止重启到底作用在哪些程序"></a>
 ### 窗格上的「启动/停止/重启」到底作用在哪些程序？
 
 **只作用于该窗格当前显示的那一个程序**（标题栏写的是哪个程序，就操作哪个）。
@@ -1092,6 +1118,7 @@ reg delete "HKCU\Software\QQBotLauncher\QQBot启动管理器\nav" /f
 > 现在 `PaneWidget._emit_action()` 只发一个 key（`current_key()`），
 > `tools\check_pane_scope.py` 会断言"函数里不允许出现任何循环"。
 
+<a id="重启在需要强制停止时没能重新启动"></a>
 ### 「重启」在需要强制停止时没能重新启动？
 
 已修复。两处根因都在 `app/process_manager.py`：
@@ -1115,6 +1142,7 @@ python tools\check_tool_api_usage.py   :: 核对测试脚本调用的成员是�
 > `check_restart_force.py` 需要在装有 PyQt6 的机器上跑（它会真的起一个
 > `python -c "..." time.sleep(120)` 进程，只把 `_taskkill_sync` 打成桩）。
 
+<a id="六项目结构"></a>
 ## 六、项目结构
 
 ```
@@ -1209,8 +1237,10 @@ main.py ──> app.ui.main_window ──> app.ui.bot_tab ──> app.ui.program
 
 ---
 
+<a id="七问题反馈与贡献"></a>
 ## 七、问题反馈与贡献
 
+<a id="先说明一下作者的情况很重要"></a>
 ### 先说明一下作者的情况（很重要）
 
 > 我不懂编程，只会看别人的 readme，自己配置然后用 ai 辅助解决使用或者部署问题。
@@ -1227,6 +1257,7 @@ main.py ──> app.ui.main_window ──> app.ui.bot_tab ──> app.ui.program
 | 你希望**快速合并** | 请把改动控制得小一点、说明写清楚，这样我能确认它没破坏别的东西 |
 | 你发现我回复得答非所问 | 直接指出即可，我不是在敷衍，是真的没看懂 🙂 |
 
+<a id="报-issue推荐最省事"></a>
 ### 报 Issue（推荐，最省事）
 
 仓库的 **Issues** 是开着的：<https://github.com/shuixuanle/QQBotLauncher/issues/new>
@@ -1251,6 +1282,7 @@ python tools\run_all_checks.py     :: 28 个静态检查一次跑完，多数低
 python main.py --doctor             :: 只做导入与名字体检，不需要图形界面
 ```
 
+<a id="提-pr欢迎但请体谅"></a>
 ### 提 PR（欢迎，但请体谅）
 
 标准流程（GitHub 自带，不需要我额外教）：
@@ -1279,6 +1311,7 @@ python main.py --doctor             :: 只做导入与名字体检，不需要�
 
 细节见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+<a id="八许可与免责"></a>
 ## 八、许可与免责
 
 本项目以 **MIT 许可证**发布，见 [LICENSE](LICENSE)。

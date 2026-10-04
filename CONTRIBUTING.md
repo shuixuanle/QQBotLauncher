@@ -6,6 +6,7 @@
 
 ---
 
+<a id="一报告问题issue"></a>
 ## 一、报告问题（Issue）
 
 Issues 已开启：<https://github.com/shuixuanle/QQBotLauncher/issues/new>
@@ -27,6 +28,7 @@ python -c "import sys, platform; print(sys.version); print(platform.platform())"
 python -c "from PyQt6.QtCore import QT_VERSION_STR; print('PyQt6 Qt', QT_VERSION_STR)"
 ```
 
+<a id="脱敏必做"></a>
 ### 脱敏（必做）
 
 贴之前把这些替换掉 —— 它们对定位问题没用，但会泄露你的隐私：
@@ -38,6 +40,7 @@ python -c "from PyQt6.QtCore import QT_VERSION_STR; print('PyQt6 Qt', QT_VERSION
 | token / 密码 / API key | `ghp_xxx` | `<token>` |
 | 内网地址 | `192.168.1.10:8080` | `<内网地址>` |
 
+<a id="提问前先自查能省一轮往返"></a>
 ### 提问前先自查（能省一轮往返）
 
 ```bat
@@ -49,6 +52,7 @@ python main.py --nav-debug         :: 左侧列表相关问题
 
 ---
 
+<a id="二提交改动pull-request"></a>
 ## 二、提交改动（Pull Request）
 
 ### 流程
@@ -98,6 +102,7 @@ UI：合并重复的窗格标题行
 | 路径 | 不要在仓库文件里写死个人绝对路径；脚本用相对路径推导或环境变量覆盖 |
 | 禁止提交 | `bots_config.json`、`*.log`、`build/work/`、`dist/`、`__pycache__/`（`.gitignore` 已排除） |
 
+<a id="自检必须全绿"></a>
 ### 自检（必须全绿）
 
 ```bat
@@ -129,7 +134,14 @@ python main.py --selftest               :: GUI 自检（环境与配置摘要）
 | `check_hydrant_command.py` | 提权命令被写成三层引号（PowerShell 把命令打印出来、程序没启动，退出码还是 0） |
 | `check_hydrant_launcher.py` | 提权启动脚本写歪：非 ASCII / 纯 LF 换行 / 少了 `-Wait` / **在 `( )` 块里用 `%CD%`**（真机事故：路径被算成脚本目录）；本机没有该脚本时自动跳过 |
 
+<a id="仓库布局约定根目录要干净"></a>
 ### 仓库布局约定（根目录要干净）
+
+> **中文标题的锚点**：标题里带中文标点（`、？：（）「」`）时，GitHub 自动生成的
+> 锚点要看它的标点规则，不同实现可能不一致 —— 真机出现过"目录点不动"。
+> 约定：**这类标题的上一行放一个显式锚点** `<a id="…"></a>`，目录指向它。
+> `python tools\check_doc_links.py` 会检查这条（漏了会红），
+> 目录本身用 `python tools\maintenance\patch_readme_toc.py --apply` 重新生成。
 
 根目录**只放**白名单里的东西（入口脚本、文档、配置样例、`app/ tools/ docs/ scripts/ build/`）。
 加新文件之前先想清楚该放哪：
@@ -157,6 +169,7 @@ python main.py --selftest               :: GUI 自检（环境与配置摘要）
 
 ---
 
+<a id="三作者会怎么处理你的-pr"></a>
 ## 三、作者会怎么处理你的 PR
 
 老实说：

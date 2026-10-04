@@ -25,7 +25,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 #: 锚点算法与 README 目录生成共用同一份（避免"目录能点、正文点不动"）
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from md_anchor import slugify  # noqa: E402
+from md_anchor import (explicit_anchor, heading_anchor,  # noqa: E402
+                       slugify, unsafe_punctuation)
 
 #: 要检查的文档；不存在的直接跳过（比如别人只拿走一部分文件）
 DOCS = (
@@ -51,10 +52,17 @@ def check(label: str, cond: bool, detail: str = "") -> None:
 
 
 def headings(text: str) -> set:
-    """收集文档里的标题锚点（跳过围栏代码块里的 `#` 行，例如 spec 示例）。"""
+    """收集文档里的标题锚点（跳过围栏代码块里的 `#` 行，例如 spec 示例）。
+
+    两种来源都算数：
+      · 标题自动推导的 slug；
+      · 标题上一行的**显式锚点** `<a id="…"></a>`（中文标点的标题靠它，
+        见 md_anchor.py 里"为什么不能依赖 GitHub 的标点规则"）。
+    """
     found = set()
     in_fence = False
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
         if line.strip().startswith("```"):
             in_fence = not in_fence
             continue
@@ -62,8 +70,37 @@ def headings(text: str) -> set:
             continue
         match = re.match(r"^(#{1,6})\s+(.*)$", line)
         if match:
-            found.add(slugify(match.group(2).strip()))
+            found.add(heading_anchor(lines, index, match.group(2).strip()))
     return found
+
+
+def unsafe_headings(text: str) -> list:
+    """标题里带"跨实现有歧义的标点"、却没有显式锚点的那些行。
+
+    GitHub 的自动锚点只清掉 ASCII 标点 + 两个 Unicode 区段，**中文标点留不留
+    只能靠猜**（真机反馈过"有一个跳转出问题"）。所以约定：
+    标题里带中文标点 → 上一行必须放 `<a id="…"></a>`，目录指向它。
+    """
+    problems = []
+    in_fence = False
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if not match:
+            continue
+        title = match.group(2).strip()
+        bad = unsafe_punctuation(title)
+        if not bad:
+            continue
+        if index > 0 and explicit_anchor(lines[index - 1]):
+            continue
+        problems.append((index + 1, title[:40], bad))
+    return problems
 
 
 def git_ignored(rel_path: str):
@@ -106,6 +143,10 @@ def main() -> int:
             continue
         text = doc.read_text(encoding="utf-8", errors="replace")
         anchors = headings(text)
+        # 带中文标点的标题必须配显式锚点（否则 GitHub 上的跳转要靠猜，真出过问题）
+        problems = unsafe_headings(text)
+        check("{}：带中文标点的标题都配了显式锚点（不靠 GitHub 猜标点）".format(rel),
+              not problems, str(problems[:3]))
         bad_anchor, bad_file, ignored_image = [], [], []
         doc_ignored_checked = 0
 
