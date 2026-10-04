@@ -51,6 +51,40 @@ def check(label: str, cond: bool, detail: str = "") -> None:
         failures.append(label)
 
 
+def toc_label_problems(text: str) -> list:
+    """目录项的链接文字有没有问题：方括号不安全 / 与标题文字不一致。
+
+    规则（与 tools/maintenance/patch_readme_toc.py 的 toc_label() 对应）：
+      · 代码片段（`…`）里的方括号是安全的，原样保留；
+      · 码段之外的 `[` `]` 必须转义成 `\\[` `\\]`；
+      · 文字去掉 `*` 之后应当与标题去掉 `*` 之后一致
+        （以前把反引号一起删了，才引出"链接文字被截断"那个真机 bug）。
+    """
+    problems = []
+    titles = {}
+    for line in text.splitlines():
+        match = re.match(r"^#{1,6}\s+(.*)$", line)
+        if match:
+            titles[match.group(1).strip().replace("*", "")] = True
+    for line in text.splitlines():
+        entry = re.match(r"^\s*-\s+\[(.*)\]\(#([^)]+)\)\s*$", line)
+        if not entry:
+            continue
+        label, anchor_id = entry.group(1), entry.group(2)
+        # 逐段检查：码段原样，码段之外不许有裸方括号
+        for position, part in enumerate(re.split(r"(`[^`]*`)", label)):
+            if position % 2:
+                continue
+            stripped = part.replace("\\[", "").replace("\\]", "")
+            if "[" in stripped or "]" in stripped:
+                problems.append((label[:30], "裸方括号"))
+                break
+        plain = label.replace("\\[", "[").replace("\\]", "]")
+        if plain not in titles:
+            problems.append((label[:30], "文字与标题不一致"))
+    return problems
+
+
 def headings(text: str) -> set:
     """收集文档里的标题锚点（跳过围栏代码块里的 `#` 行，例如 spec 示例）。
 
@@ -143,6 +177,13 @@ def main() -> int:
             continue
         text = doc.read_text(encoding="utf-8", errors="replace")
         anchors = headings(text)
+        # 目录里的链接文字必须能安全放进 [...]：
+        # 真机事故（2026-10-04）：标题里的反引号被删掉后，链接文字变成
+        #   [日志里那些 [32;20m、[0m 是什么？](#…)
+        # 方括号不配对 → GitHub 只把最近的 [0m 是什么？] 当链接文字，跳转废掉。
+        label_problems = toc_label_problems(text)
+        check("{}：目录链接文字安全（方括号配对/转义，文字与标题一致）".format(rel),
+              not label_problems, str(label_problems[:3]))
         # 带中文标点的标题必须配显式锚点（否则 GitHub 上的跳转要靠猜，真出过问题）
         problems = unsafe_headings(text)
         check("{}：带中文标点的标题都配了显式锚点（不靠 GitHub 猜标点）".format(rel),
