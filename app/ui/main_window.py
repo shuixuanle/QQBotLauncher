@@ -1038,9 +1038,9 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.start_all_button)
 
         self.start_pick_button = QToolButton(bar)
-        self.start_pick_button.setText("▾")
-        self.start_pick_button.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        # 文字留空：InstantPopup 自己会在按钮右下画一个菜单箭头 ——
+        # 再写一个 "▾" 就成了两个箭头（真机截图里那两个"√"就是这个）
+        self.start_pick_button.setText("")
         self.start_pick_button.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup)
         self.start_pick_button.setMenu(self.build_start_selection_menu())

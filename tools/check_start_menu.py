@@ -129,8 +129,16 @@ def main() -> int:
                   ("QCheckBox(", "QWidgetAction(", "QLabel(", "QScrollArea(")))
     check("勾选列用菜单原生的（没有 AlignRight 之类的自绘对齐）",
           "AlignRight" not in menu_src)
-    check("每一项都是 QAction + setCheckable(True)",
-          menu_src.count("QAction(") >= 3 and "setCheckable(True)" in menu_src)
+    check("每一项都是原生 QAction", menu_src.count("QAction(") >= 4)
+    #  真机三次反馈："√ 太突兀" → 不用菜单原生的勾选列，改成文字方块 ■ / □
+    check("不用 setCheckable（免得出现菜单原生的对勾）", "setCheckable" not in menu_src)
+    check("勾选框是文字方块 ■ / □（等宽、GBK 安全）",
+          'BOX_ON = "\\u25a0"' in menu_src and 'BOX_OFF = "\\u25a1"' in menu_src)
+    check("方块真的写进了每一行文字",
+          'action.setText("{} {}".format(' in menu_src
+          and "BOX_ON if" in menu_src)
+    check("勾选状态自己记着（_checked）", "_checked" in menu_src and
+          "self._checked[key] = not self._checked.get(key, False)" in menu_src)
     check("小标题是 disabled 的 QAction（和「布局」下拉的“右侧分屏方式”一样）",
           'header = QAction("选择启动的程序"' in menu_src
           and "header.setEnabled(False)" in menu_src)
@@ -146,25 +154,30 @@ def main() -> int:
     check("没有 BRANCH_* 分支符号常量",
           "BRANCH_MIDDLE" not in menu_src and "BRANCH_LAST" not in menu_src)
 
-    print("\n[2] 联动：勾机器人 → 子项一起；行尾写清已选几个")
-    check("有 _set_group（成组勾选）", "_set_group" in menu_methods)
-    check("机器人行真接上了 _set_group",
-          "self._set_group(" in menu_src and "bot_action.toggled.connect" in menu_src)
-    check("有 _sync_bot_rows（父项刷新）", "_sync_bot_rows" in menu_methods)
-    check("父项勾选 = 子项全勾", "action.setChecked(chosen == len(states))" in menu_src)
-    check("行尾**不再**写「已选 n/m」（真机反馈：多余）",
-          not any("已选" in item for item in runtime_strings(menu_src)))
-    check("点勾选行不关菜单（拦下 mouseReleaseEvent，只 trigger 不返回 super）",
-          "def mouseReleaseEvent" in menu_src
-          and "action.trigger()" in menu_src
-          and "return                    # ← 不调用 super()" in menu_src)
-    check("「全选 / 清空」也留在菜单里（KEEP_OPEN_FLAG）",
-          "KEEP_OPEN_FLAG" in menu_src and menu_src.count("setProperty(KEEP_OPEN_FLAG") == 2)
-    check("「启动勾选的」不标 keep_open（点完要关菜单）",
+    print("\n[2] 联动：勾机器人 → 整组切换；父项方块随子项变化")
+    check("有 _toggle_group（整组切换）", "_toggle_group" in menu_methods)
+    check("机器人行真接上了整组切换（按 ROW_BOT 属性认行）",
+          "ROW_BOT" in menu_src and "self._toggle_group(bot_id)" in menu_src)
+    check("有 _refresh_rows（统一重写文字）", "_refresh_rows" in menu_methods)
+    check("父项方块 = 子项全勾才 ■",
+          "BOX_ON if all(states) else BOX_OFF" in menu_src)
+    check("每次改动后都会刷新文字",
+          menu_src.count("self._refresh_rows()") >= 4)
+    check("机器人名单独记着（不靠拆文本反解析）",
+          "self._bot_rows[bot.id] = (bot_action, bot_keys, bot_name)" in menu_src)
+    check("程序名/主程序也单独记着", "_names" in menu_src and "_primary" in menu_src)
+
+    print("\n[2b] 点勾选行不关菜单（真机：点一下菜单就消失 / 还穿透到按钮上）")
+    handler = menu_methods.get("mouseReleaseEvent", "")
+    check("拦下了 mouseReleaseEvent", bool(handler))
+    check("程序行：只翻状态 + 刷新，不调 super", "self._checked[key] = not" in handler
+          and "self._refresh_rows()" in handler)
+    check("机器人行：整组切换，也不关菜单", "self._toggle_group(bot_id)" in handler)
+    check("全选/清空：标了 KEEP_OPEN_FLAG，也留在菜单里",
+          "KEEP_OPEN_FLAG" in handler and "action.property(KEEP_OPEN_FLAG)" in handler)
+    check("其余项走默认行为（点完关菜单）", "super().mouseReleaseEvent(event)" in handler)
+    check("「启动勾选的」没标 keep_open",
           "KEEP_OPEN_FLAG" not in menu_methods.get("_build_footer", "").split("start = QAction")[1])
-    check("子项变化会刷新父项",
-          "self._sync_bot_rows" in menu_methods.get("_build_tree", ""))
-    check("机器人名单独记着（不靠拆文本反解析）", "_bot_names" in menu_src)
 
     print("\n[3] 默认：按当前机器人预勾选")
     check("有 focus_on()", "focus_on" in menu_methods)
@@ -214,9 +227,12 @@ def main() -> int:
     check("**不用** MenuButtonPopup 分裂按钮（会被穿透点击）",
           not uses_attribute(window_src, "MenuButtonPopup"))
     check("旁边是独立的小箭头按钮，挂勾选菜单",
-          'self.start_pick_button.setText("▾")' in window_src
-          and "self.start_pick_button.setMenu(self.build_start_selection_menu())"
+          "self.start_pick_button.setMenu(self.build_start_selection_menu())"
           in window_src)
+    #  InstantPopup 自己会画箭头；再写 "▾" 就成两个箭头（真机截图里那两个"√"）
+    check("小箭头按钮不再自己写箭头字符（避免两个箭头）",
+          'setText("\\u25be")' not in window_src
+          and 'self.start_pick_button.setText("")' in window_src)
     check("小箭头是 InstantPopup（点一下就弹菜单）",
           "InstantPopup" in window_src)
     check("菜单每次展开前重建",
