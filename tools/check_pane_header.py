@@ -133,7 +133,15 @@ def main() -> int:
     check("  缩略模式：窄的时候四个按钮合并成一个下拉（操作按钮）",
           "self.actions_button" in title_bar
           and "_update_compact_mode" in tab_src
-          and "COMPACT_WIDTH" in tab_src)
+          and "_compact_threshold" in tab_src)
+    #  真机要求（2026-10-05）：标题先省略成 "前半…"，只有到"只剩 3 个汉字 + …"
+    #  时才收起四个按钮（按钮优先级更高）。所以：
+    check("  标题会手动省略（QLabel 自己不会）",
+          "elidedText(full, Qt.TextElideMode.ElideRight" in tab_src
+          and "self._full_title = title" in tab_src)
+    check("  缩略阈值按 3 个汉字加省略号算出（不是写死像素）",
+          "TITLE_MIN_CHARS = 3" in tab_src and "def _compact_threshold(" in tab_src
+          and "COMPACT_WIDTH" not in tab_src)
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0

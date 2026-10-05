@@ -414,18 +414,58 @@ class PaneWidget(QWidget):
         self._compact = False
         return bar
 
-    #: 窗格窄于这个宽度就切到缩略模式（四个按钮合并成「操作 ▾」）
-    COMPACT_WIDTH = 430
-    #: 收窄/放宽用两个阈值，避免在边界上反复横跳
-    COMPACT_BACK_WIDTH = 470
+    #: 缩略模式阈值（"标题只能显示 3 个汉字 + 一个省略号"时的窗格宽度）。
+    #: 真机要求（2026-10-05）：**四个操作按钮的优先级更高** —— 先压标题，
+    #: 直到标题只剩 3 个汉字 + "…"，这时才把四个按钮合并成一个「操作 ▾」。
+    #: 所以阈值不是写死的像素，而是按当前字体/按钮实际宽度**算**出来的。
+    TITLE_MIN_CHARS = 3
+
+    def _compact_threshold(self) -> int:
+        """算出"标题只剩 3 个汉字 + …"时窗格的总宽度（超过它就该缩略了）。"""
+        try:
+            metrics = self.title_label.fontMetrics()
+            one_char = metrics.horizontalAdvance("汉") or 12
+            title_min = one_char * self.TITLE_MIN_CHARS + metrics.horizontalAdvance("…")
+            fixed = 0
+            for label in (self.status_label, self.pid_label, self.count_label):
+                fixed += max(0, label.sizeHint().width()) + 8
+            for button in (self.start_button, self.stop_button, self.restart_button,
+                           self.clear_button):
+                fixed += max(0, button.sizeHint().width()) + 8
+            return int(fixed + title_min + 24)
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return 430
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
-        """窗格大小变化：按宽度切换缩略模式（只在跨阈值时动一次）。"""
+        """窗格大小变化：先更新标题省略，再按宽度切换缩略模式。"""
         super().resizeEvent(event)
         try:
+            self._apply_title_elide()
             self._update_compact_mode(event.size().width())
         except (RuntimeError, AttributeError, TypeError, ValueError):
             return
+
+    def _apply_title_elide(self) -> None:
+        """标题放不下时显示成 "前半…"（QLabel 自己不会省略，得手动算）。
+
+        鼠标移上去的 tooltip 里始终是**完整**标题（见 refresh_title），
+        满足"移到缩略文本上能看到完整内容"。
+        """
+        label = getattr(self, "title_label", None)
+        full = getattr(self, "_full_title", "")
+        if label is None or not full:
+            return
+        width = label.width()
+        if width <= 0:
+            return
+        try:
+            metrics = label.fontMetrics()
+            shown = metrics.elidedText(full, Qt.TextElideMode.ElideRight,
+                                       max(16, width - 2))
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        if shown != label.text():
+            label.setText(shown)
 
     def _update_compact_mode(self, width: int) -> None:
         """宽度不够就收起四个按钮、只留「操作 ▾」（状态没变就直接返回）。"""
@@ -433,9 +473,10 @@ class PaneWidget(QWidget):
             return
         if width <= 0:
             return
-        if not self._compact and width < self.COMPACT_WIDTH:
+        threshold = self._compact_threshold()
+        if not self._compact and width < threshold:
             self._compact = True
-        elif self._compact and width > self.COMPACT_BACK_WIDTH:
+        elif self._compact and width > threshold + 40:      # 滞回，避免边界抖动
             self._compact = False
         else:
             return                                    # 状态没变：什么都不做（防止循环）
@@ -443,6 +484,8 @@ class PaneWidget(QWidget):
                        self.clear_button):
             button.setVisible(not self._compact)
         self.actions_button.setVisible(self._compact)
+        # 按钮显隐会改变标题可用宽度，立刻重算一次省略
+        self._apply_title_elide()
 
     def _build_tabs(self, outer: QVBoxLayout) -> None:
         """多程序：底部标签页承载各自的日志视图。"""
@@ -659,8 +702,9 @@ class PaneWidget(QWidget):
         """刷新标题、状态文字与 PID（states 为 key -> 状态，另含 key#pid）。"""
         program_id = self.current_program_id()
         title = self.title_for(program_id)
-        if self.title_label.text() != title:
-            self.title_label.setText(title)
+        # 完整标题留着：窄的时候显示省略版（"前半…"），鼠标移上去看完整 tooltip
+        self._full_title = title
+        self._apply_title_elide()
         tooltip = [title]
         if len(self.node.programs) > 1:
             tooltip.append("本窗格含 {} 个程序，用底部标签切换".format(len(self.node.programs)))
