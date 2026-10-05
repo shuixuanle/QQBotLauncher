@@ -490,6 +490,13 @@ def relaunch_with_own_console() -> bool:
     try:
         kernel32 = ctypes.windll.kernel32
         if kernel32.GetConsoleWindow():
+            # ⚠️ 必须**先打印再断开**：FreeConsole() 之后当前进程就没有控制台了，
+            # 之后所有 print 都会消失（真机 2026-10-05：用户以为"--console 没有日志"，
+            # 其实是提示和日志都跑到**新开的那个控制台窗口**里去了）。
+            print("管理器将在一个**新的控制台窗口**里启动，日志与报错都在那边。",
+                  flush=True)
+            print("（想看日志请切到那个新窗口；崩溃信息也会写进 launcher_error.log）",
+                  flush=True)
             # 先断开，子进程才会真正拿到"全新的"控制台
             kernel32.FreeConsole()
         creationflags = (
