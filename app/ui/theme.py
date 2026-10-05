@@ -89,7 +89,11 @@ DARK_BASE = "#1e1f22"
 DARK_ALTERNATE = "#33363a"
 DARK_TEXT = "#d6d6d6"
 DARK_BUTTON = "#3a3d41"
-DARK_BORDER = "#3a3d41"
+#: 深色主题的边框 / 分隔线色。
+#: 原来是 #3a3d41（与背景 #2b2b2b 的对比度只有 1.30）—— 真机反馈"深色模式下
+#: 工具栏那条浅色分割线看不见"。提到 #45484c 后对比度 1.54，和浅色主题的
+#: #c6c3b8 / #f0efe9（1.53）基本一致，两套看起来一样清楚。
+DARK_BORDER = "#45484c"
 DARK_HIGHLIGHT = "#2f6fb5"
 DARK_HIGHLIGHT_TEXT = "#ffffff"
 DARK_DISABLED_TEXT = "#7a7a7a"
@@ -727,8 +731,11 @@ def _build_dark_palette(base: Optional[QPalette] = None) -> QPalette:
         palette.setColor(group, QPalette.ColorRole.HighlightedText, highlighted_text)
         palette.setColor(group, QPalette.ColorRole.PlaceholderText, disabled)
         palette.setColor(group, QPalette.ColorRole.Mid, border)
-        palette.setColor(group, QPalette.ColorRole.Dark, QColor("#1a1a1a"))
-        palette.setColor(group, QPalette.ColorRole.Shadow, QColor("#101010"))
+        # Dark / Shadow 是 Qt 给"3D 边框 / 自绘细线"用的角色。原来深色主题里给的是
+        # #1a1a1a / #101010 —— 比背景还暗，画出来的线与背景糊在一起（真机反馈：
+        # 深色模式下工具栏分割线看不见）。改用可见的边框色。
+        palette.setColor(group, QPalette.ColorRole.Dark, border)
+        palette.setColor(group, QPalette.ColorRole.Shadow, border)
         palette.setColor(group, QPalette.ColorRole.Light, QColor("#454545"))
         palette.setColor(group, QPalette.ColorRole.Midlight, QColor("#3a3a3a"))
 
@@ -1556,6 +1563,14 @@ def chrome_qss(widget: Optional[QWidget] = None) -> str:
         "QMenu::item:selected {{ background-color: {sel}; color: {sel_text}; }}"
         "QMenu::item:disabled {{ color: {disabled}; }}"
         "QMenu::separator {{ height: 1px; background-color: {border}; margin: 4px 8px; }}"
+        # 工具栏/主窗口的分割线：Qt 默认用调色板的 Dark 角色画，深色主题下那个是
+        # 近黑色（#1a1a1a），落在深色工具栏上几乎看不见（真机反馈 2026-10-05：
+        # "深色模式下浅色的分割线理应看得见，现在看不清楚"）。显式用 border 角色画，
+        # 顺便让它跟着自定义配色走。
+        "QToolBar::separator {{ background-color: {border}; width: 1px; margin: 3px 6px; }}"
+        "QMainWindow::separator {{ background-color: {border}; width: 1px; height: 1px; }}"
+        # 窗格之间的分割条也一并给个可见的颜色（拖动区域宽度仍由 setHandleWidth 决定）
+        "QSplitter::handle {{ background-color: {border}; }}"
         "QToolBar, QToolBar#botBar {{ color: {text}; background-color: transparent; border: 0; }}"
         "QToolBar QToolButton {{ color: {text}; }}"
         "QToolBar QToolButton:disabled {{ color: {disabled}; }}"

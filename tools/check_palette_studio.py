@@ -29,6 +29,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+TOOLS = ROOT / "tools"
+sys.path.insert(0, str(TOOLS))
+from _theme_probe import load_theme_namespace  # noqa: E402
+_NS = load_theme_namespace(functions=("contrast_ratio",))
+contrast_ratio = _NS["contrast_ratio"]
+DARK_BORDER_VALUE = _NS["DARK_BORDER"]
+LIGHT_BORDER_VALUE = _NS["LIGHT_BORDER"]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from _theme_probe import load_theme_namespace                 # noqa: E402
@@ -327,6 +334,23 @@ def run_wiring_checks() -> None:
     theme_source, theme_tree = get_source(THEME)
     main_source, main_tree = get_source(MAIN)
     studio_source, studio_tree = get_source(STUDIO)
+
+    theme_src = (ROOT / "app" / "ui" / "theme.py").read_text(encoding="utf-8")
+    print("\n[3f] 分割线：深浅两套都要看得见（真机 2026-10-05：深色下看不见）")
+    check("  QToolBar::separator 用主题色画（不是 Qt 默认的近黑色）",
+          "QToolBar::separator" in theme_src)
+    check("  QMainWindow::separator 也画了", "QMainWindow::separator" in theme_src)
+    check("  QMenu::separator 也画了", "QMenu::separator" in theme_src)
+    check("  QSplitter::handle（窗格分割条）也画了", "QSplitter::handle" in theme_src)
+    check("  深色调色板的 Dark / Shadow 不是近黑色（改用边框色）",
+          "QPalette.ColorRole.Dark, border" in theme_src
+          and "QPalette.ColorRole.Shadow, border" in theme_src)
+    ratio_dark = contrast_ratio("#2b2b2b", DARK_BORDER_VALUE)
+    ratio_light = contrast_ratio("#f0efe9", LIGHT_BORDER_VALUE)
+    check("  深色 分割线/背景 对比度 >= 1.4（实际 {:.2f}）".format(ratio_dark),
+          ratio_dark >= 1.4)
+    check("  浅色 分割线/背景 对比度 >= 1.4（实际 {:.2f}）".format(ratio_light),
+          ratio_light >= 1.4)
 
     print("\n[4] theme.py：自定义颜色被真正使用（整个界面，不只是日志区）")
     ansi_palette = find_function(theme_tree, "ansi_palette")
