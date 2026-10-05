@@ -8,7 +8,7 @@
     program_widget.py    只读日志控件，核心接口 append_log(text)（含 ANSI 上色）
     edit_bot_dialog.py   新建 / 编辑 Bot 的对话框
     palette_dialog.py    配色工作台（视图 → 外观 → 配色工作台…），改完立即生效
-    start_menu.py        「启动全部 ▾」的树形勾选菜单（挑这次要启动哪些程序）
+    start_menu.py        「启动全部 ▾」的层级勾选菜单（挑这次要启动哪些程序）
 
 推荐导入方式（显式到模块，不做包级别的预加载）：
 

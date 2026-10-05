@@ -94,36 +94,43 @@ def main() -> int:
     window_src = WINDOW.read_text(encoding="utf-8")
     menu_methods = methods(menu_src, "StartSelectionMenu")
 
-    print("\n[1] 结构：QMenu + 缩进层级 + **右侧**勾选框")
+    print("\n[1] 风格：和「布局」下拉一样是**纯原生 QAction** 菜单")
     check("有 StartSelectionMenu(QMenu)", "class StartSelectionMenu(QMenu)" in menu_src)
     check("有信号 startRequested(list)", "startRequested = pyqtSignal(list)" in menu_src)
-    # 真机反馈（2026-10-05）：不要 cmd tree 那种制表符号，层级只靠缩进 + 加粗
+    # 真机二次反馈（2026-10-05）：第一版用自绘控件（右侧勾选框）"很违和"，
+    # 要求跟其它下拉统一 —— 所以这里反过来盯着：不许再引入自绘控件。
+    check("没有自绘控件（QCheckBox / QWidgetAction / QLabel / QScrollArea）",
+          not any(token in menu_src for token in
+                  ("QCheckBox(", "QWidgetAction(", "QLabel(", "QScrollArea(")))
+    check("勾选列用菜单原生的（没有 AlignRight 之类的自绘对齐）",
+          "AlignRight" not in menu_src)
+    check("每一项都是 QAction + setCheckable(True)",
+          menu_src.count("QAction(") >= 3 and "setCheckable(True)" in menu_src)
+    check("小标题是 disabled 的 QAction（和「布局」下拉的“右侧分屏方式”一样）",
+          'header = QAction("选择启动的程序"' in menu_src
+          and "header.setEnabled(False)" in menu_src)
+    check("有分隔线（和别的菜单一致的分段）", menu_src.count("addSeparator()") >= 3)
+
+    print("\n[1b] 层级：只用缩进（不允许制表符号）")
+    check("缩进常量是全角空格（比例字体下宽度稳定）",
+          'INDENT = "\\u3000\\u3000"' in menu_src)
+    check("程序行用 INDENT + 名称", "INDENT + program.name" in menu_src)
+    check("程序行标出主程序", "（主程序）" in menu_src)
     check("界面代码里没有制表符号/前缀标记（├ └ │ ▍）",
           not glyph_literals(menu_src), str(glyph_literals(menu_src)[:3]))
-    check("没有 BRANCH_* 分支符号常量", "BRANCH_MIDDLE" not in menu_src
-          and "BRANCH_LAST" not in menu_src)
-    check("层级靠缩进表达（LEVEL_INDENT）", "LEVEL_INDENT" in menu_src)
-    check("机器人名加粗（代替符号看层级）", "bold=True" in menu_src
-          and "font.setBold(True)" in menu_src)
-    check("后缀用次要文字色（浅色字）", "muted_text_color" in menu_src)
-    check("没有 ▍ 之类的前缀标记", "\u258d" not in menu_src)
-    check("勾选框靠右（AlignRight）", "AlignRight" in menu_src)
-    check("勾选框不带文字（文字在左边单独一个 QLabel）",
-          not any(token in menu_src for token in ('QCheckBox("', "QCheckBox('")))
-    check("菜单标题「选择启动的程序」", "选择启动的程序" in menu_src)
-    check("标题/后缀用主题的次要文字色（浅色字）", "muted_text_color" in menu_src)
-    check("点整行也能勾（不用瞄准小方框）", "def mousePressEvent" in menu_src)
-    check("机器人多时列表可滚动", "QScrollArea" in menu_src)
+    check("没有 BRANCH_* 分支符号常量",
+          "BRANCH_MIDDLE" not in menu_src and "BRANCH_LAST" not in menu_src)
 
-    print("\n[2] 联动：勾机器人 → 子项一起；子项不齐 → 父项半选")
-    check("父项三态", "setTristate(True)" in menu_src)
+    print("\n[2] 联动：勾机器人 → 子项一起；行尾写清已选几个")
     check("有 _set_group（成组勾选）", "_set_group" in menu_methods)
     check("机器人行真接上了 _set_group",
-          "self._set_group(" in menu_src and "bot_box.toggled.connect" in menu_src)
-    check("有 _sync_bot_rows（父项半选刷新）", "_sync_bot_rows" in menu_methods)
-    check("半选用了 PartiallyChecked", "PartiallyChecked" in menu_src)
+          "self._set_group(" in menu_src and "bot_action.toggled.connect" in menu_src)
+    check("有 _sync_bot_rows（父项刷新）", "_sync_bot_rows" in menu_methods)
+    check("父项勾选 = 子项全勾", "action.setChecked(chosen == len(states))" in menu_src)
+    check("行尾写「已选 n/m」", "已选 {}/{}" in menu_src)
     check("子项变化会刷新父项",
           "self._sync_bot_rows" in menu_methods.get("_build_tree", ""))
+    check("机器人名单独记着（不靠拆文本反解析）", "_bot_names" in menu_src)
 
     print("\n[3] 默认：按当前机器人预勾选")
     check("有 focus_on()", "focus_on" in menu_methods)
