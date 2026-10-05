@@ -99,6 +99,11 @@ DEFAULT_SPLIT_RATIO = (65, 35)
 
 #: 分隔条拖动结束后多久算"停下来了"（毫秒）
 SPLIT_SETTLE_MS = 300
+#: 窗格最小宽度：至少要放得下省略号 + 状态 + 「操作 ▾」（真机 2026-10-05 要求：
+#: "日志区域窗口最小宽度建议至少保留文字部分的…加上右侧"）。
+MIN_PANE_WIDTH = 150
+#: 封顶：左右分屏三个窗格并排时，也不该比屏幕还宽
+MAX_PANE_MIN_WIDTH = 240
 
 #: 状态文字与颜色（颜色统一取自 app.ui.theme 的状态色表，R2）
 STATE_COLORS = theme_tokens.status_colors()
@@ -412,6 +417,8 @@ class PaneWidget(QWidget):
         for label in (self.status_label, self.pid_label, self.count_label):
             label.setMinimumWidth(0)
         self._compact = False
+        self._min_width_applied = -1
+        self._apply_min_width()          # 至少能显示 "…" + 状态 + 「操作 ▾」
         return bar
 
     #: 缩略模式阈值（"标题只能显示 3 个汉字 + 一个省略号"时的窗格宽度）。
@@ -435,6 +442,37 @@ class PaneWidget(QWidget):
             return int(fixed + title_min + 24)
         except (RuntimeError, AttributeError, TypeError, ValueError):
             return 430
+
+    def _apply_min_width(self) -> None:
+        """给窗格一个最小宽度：至少能显示 "…" + 状态 + 「操作 ▾」（用户要求）。
+
+        真机要求（2026-10-05）：
+        > "日志区域窗口最小宽度建议至少保留文字部分的…加上右侧，
+        >   即左侧文字部分至少显示…"
+
+        做法：按当前字体/控件实际宽度算出"刚好放得下 …+状态+操作▾"的宽度，
+        用 setMinimumWidth 交给 Qt —— 分隔条再也压不到它以下，窗口不够宽时
+        Qt 会自动把窗口撑到这个下限（高度不动）。
+        ⚠️ 只在数值**变化**时设置，避免"设最小宽度 → 触发重排 → 又设"的循环；
+        并且封顶（3 个窗格并排时也不至于比屏幕还宽）。
+        """
+        label = getattr(self, "status_label", None)
+        button = getattr(self, "actions_button", None)
+        if label is None or button is None:
+            return
+        try:
+            metrics = self.title_label.fontMetrics()
+            dots = metrics.horizontalAdvance("…") + 8          # 标题至少留下 "…"
+            fixed = (dots
+                     + max(0, label.sizeHint().width())
+                     + max(0, button.sizeHint().width())
+                     + 28)                                     # 间距与边距
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        fixed = int(min(max(fixed, MIN_PANE_WIDTH), MAX_PANE_MIN_WIDTH))
+        if fixed != getattr(self, "_min_width_applied", -1):
+            self._min_width_applied = fixed
+            self.setMinimumWidth(fixed)
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
         """窗格大小变化：先更新标题省略，再按宽度切换缩略模式。"""
@@ -484,8 +522,9 @@ class PaneWidget(QWidget):
                        self.clear_button):
             button.setVisible(not self._compact)
         self.actions_button.setVisible(self._compact)
-        # 按钮显隐会改变标题可用宽度，立刻重算一次省略
+        # 按钮显隐会改变标题可用宽度，立刻重算一次省略与最小宽度
         self._apply_title_elide()
+        self._apply_min_width()
 
     def _build_tabs(self, outer: QVBoxLayout) -> None:
         """多程序：底部标签页承载各自的日志视图。"""

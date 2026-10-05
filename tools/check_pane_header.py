@@ -143,6 +143,14 @@ def main() -> int:
           "TITLE_MIN_CHARS = 3" in tab_src and "def _compact_threshold(" in tab_src
           and "COMPACT_WIDTH" not in tab_src)
 
+    check("  窗格有最小宽度（至少放得下 省略号 + 状态 + 操作按钮）",
+          "MIN_PANE_WIDTH" in tab_src and "MAX_PANE_MIN_WIDTH" in tab_src
+          and "def _apply_min_width(" in tab_src)
+    check("  最小宽度只在数值变化时设置（避免重排循环）",
+          "_min_width_applied" in tab_src)
+    check("  最小宽度封了顶（多窗格并排时不超过屏幕）",
+          "MAX_PANE_MIN_WIDTH = 240" in tab_src)
+
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 
