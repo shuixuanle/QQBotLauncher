@@ -938,6 +938,12 @@ class MainWindow(QMainWindow):
             self._on_force_stop_on_close_toggled
         )
 
+        # 左栏宽度恢复默认：万一记录里的宽度不合适（拖不回来 / 显示不全），
+        # 给一个"一键回到 280px"的出口（真机 2026-10-05：左栏宽度出问题那次加的）
+        self.action_reset_nav_width = QAction("左栏宽度：恢复默认", self)
+        self.action_reset_nav_width.setToolTip("把左侧列表宽度恢复成默认的 280 像素")
+        self.action_reset_nav_width.triggered.connect(self.reset_nav_width)
+
         self.action_toggle_nav = QAction("折叠左侧列表", self)
         self.action_toggle_nav.setShortcut(QKeySequence("Ctrl+L"))
         self.action_toggle_nav.setToolTip("折叠或展开左侧的机器人列表（Ctrl+L）")
@@ -1093,6 +1099,7 @@ class MainWindow(QMainWindow):
         self._build_theme_actions()
         self.view_menu.addAction(self.action_toggle_bot_tab_bar)
         self.view_menu.addAction(self.action_toggle_nav)
+        self.view_menu.addAction(self.action_reset_nav_width)
         self.view_menu.addSeparator()
         self.view_menu.addAction(self.action_force_stop_on_close)
         self.view_menu.addAction(self.action_settings)
@@ -2145,6 +2152,12 @@ class MainWindow(QMainWindow):
         self.nav_tree.setAnimated(False)
         self.nav_tree.setExpandsOnDoubleClick(False)
         self.nav_tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        #  真机事故（2026-10-05）：左栏被拖窄之后，列表里带长名字的条目**横向滚动**了，
+        #  看上去只剩每行的尾巴（"……序 · 未运行"），底部按钮也被切。这里关掉横向滚动，
+        #  超长名字改用右侧省略号显示 —— 条目永远从左边开始，看得懂。
+        self.nav_tree.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav_tree.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.nav_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.nav_tree.customContextMenuRequested.connect(self._on_nav_context_menu)
         self.nav_tree.itemSelectionChanged.connect(self._on_nav_selection_changed)
@@ -2166,13 +2179,19 @@ class MainWindow(QMainWindow):
         self.nav_stop_button.setToolTip("停止选中机器人正在运行的程序")
         self.nav_stop_button.clicked.connect(lambda: self._nav_action("stop"))
 
-        self.nav_close_button = QPushButton("关闭窗口", panel)
+        #  标签只用两个字：三个按钮并排时，"关闭窗口"四个字会把左栏的**最小宽度**
+        #  撑到 230px 左右 —— 于是左栏拖不窄，被切的时候按钮也跟着缺一截
+        #  （真机 2026-10-05："左侧栏无法调整宽度，然后出现显示错误"）。完整含义放提示里。
+        self.nav_close_button = QPushButton("关闭", panel)
         self.nav_close_button.setToolTip("关闭选中机器人的窗口（程序继续在后台运行）")
         self.nav_close_button.clicked.connect(lambda: self._nav_action("close_window"))
 
         bottom_row.addWidget(self.nav_open_button)
         bottom_row.addWidget(self.nav_stop_button)
         bottom_row.addWidget(self.nav_close_button)
+        # 允许被压窄：不给按钮设最小宽度，QHBoxLayout 才不会把面板顶住
+        for button in (self.nav_open_button, self.nav_stop_button, self.nav_close_button):
+            button.setMinimumWidth(0)
         layout.addLayout(bottom_row)
 
         # ---- 提示行 ----
@@ -2971,6 +2990,22 @@ class MainWindow(QMainWindow):
             action.blockSignals(True)
             action.setChecked(forced)
             action.blockSignals(False)
+
+    def reset_nav_width(self) -> None:
+        """把左栏宽度恢复成默认值（视图菜单里的出口，防止记录里的宽度不可用）。"""
+        splitter = getattr(self, "central_splitter", None)
+        if splitter is None:
+            return
+        total = max(DEFAULT_NAV_WIDTH + 200, splitter.width() or (DEFAULT_NAV_WIDTH + 800))
+        splitter.setSizes([DEFAULT_NAV_WIDTH, total - DEFAULT_NAV_WIDTH])
+        try:
+            self._settings.setValue(SETTINGS_NAV_SPLIT, [DEFAULT_NAV_WIDTH, total - DEFAULT_NAV_WIDTH])
+        except (TypeError, ValueError):
+            pass
+        # 顺手把折叠状态也掰回"展开"，否则点了没反应会让人以为坏了
+        if getattr(self, "_nav_collapsed", False):
+            self.toggle_nav(True)
+        self.statusBar().showMessage("左栏宽度已恢复为 {} 像素。".format(DEFAULT_NAV_WIDTH), 5000)
 
     def toggle_nav(self, visible: Optional[bool] = None) -> bool:
         """折叠 / 展开左侧导航栏，返回折叠后的可见状态。
