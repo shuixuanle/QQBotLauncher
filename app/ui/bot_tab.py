@@ -903,12 +903,25 @@ class BotTab(QWidget):
         return True
 
     def _capture_pane_sizes(self) -> None:
-        """把当前所有 splitter 的比例记进 self._pane_sizes。"""
-        for splitter in self._splitters():
-            path = self._path_of(splitter)
-            if not path:
+        """把当前所有 splitter 的比例记进 self._pane_sizes。
+
+        整个包在兜底里（真机 2026-10-05：拖动分隔条时崩溃）：这是被
+        splitterMoved / 去抖定时器调用**最频繁**的一段，拖动过程中窗格可能正好
+        在重建（旧控件 deleteLater 了但 Python 包装还在），碰到已销毁的控件会抛
+        RuntimeError —— 而它一旦冒到 Qt 槽外，PyQt6 会直接结束进程。
+        """
+        try:
+            splitters = self._splitters()
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        for splitter in splitters:
+            try:
+                path = self._path_of(splitter)
+                if not path:
+                    continue
+                sizes = self._splitter_sizes(splitter)
+            except (RuntimeError, AttributeError, TypeError, ValueError):
                 continue
-            sizes = self._splitter_sizes(splitter)
             if sizes:
                 self._pane_sizes[path] = sizes
 
@@ -1280,7 +1293,13 @@ class BotTab(QWidget):
             self._split_debounce.timeout.connect(self._on_split_settled)
 
         def _moved(_pos: int, _index: int) -> None:
-            self._capture_pane_sizes()
+            # 这个槽在**拖动分隔条时连续触发**（Qt 信号槽）—— 里面抛异常会被 PyQt6
+            # 直接终止进程（真机踩过好几次"拖一下就闪退"）。宁可少记一次比例，
+            # 也不能把管理器带走。
+            try:
+                self._capture_pane_sizes()
+            except (RuntimeError, AttributeError, TypeError, ValueError):
+                return
             if self._split_debounce is not None:
                 self._split_debounce.start()
 
@@ -1290,8 +1309,15 @@ class BotTab(QWidget):
             pass
 
     def _on_split_settled(self) -> None:
-        """分隔条停止拖动：把新的比例通知出去（主窗口写入 QSettings）。"""
-        self._capture_pane_sizes()
+        """分隔条停止拖动：把新的比例通知出去（主窗口写入 QSettings）。
+
+        同样整个包在兜底里：这是 QTimer.timeout 槽，异常会让 PyQt6 终止进程
+        （真机 2026-10-05：拖动分隔条时崩溃）。
+        """
+        try:
+            self._capture_pane_sizes()
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
         if self._pane_sizes != self._last_split_snapshot:
             self._last_split_snapshot = {
                 path: list(sizes) for path, sizes in self._pane_sizes.items()
