@@ -106,7 +106,7 @@ def main() -> int:
     tab_src = (ROOT / "app" / "ui" / "bot_tab.py").read_text(encoding="utf-8")
     widget_src = (ROOT / "app" / "ui" / "program_widget.py").read_text(encoding="utf-8")
     check("  机器人标题行的标签设成了 Ignored（宽随布局）",
-          "_flexible_labels = (title, self.layout_label, self.status_label)" in tab_src
+          "for label in (title, self.layout_label, self.status_label):" in tab_src
           and "QSizePolicy.Policy.Ignored" in tab_src)
     check("  窗格标题行的标签也设成了 Ignored",
           "for _label in (self.title_label, self.status_label, self.count_label):"

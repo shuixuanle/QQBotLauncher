@@ -1048,11 +1048,6 @@ class BotTab(QWidget):
         self.layout_button.clicked.connect(self._on_layout_button)
 
         self.layout_label = QLabel("", bar)
-        #  这些标签的内容会长（机器人名、"只看主程序 | 1 个窗格"……）。QLabel 默认会
-        #  把"文字宽度"当成最小宽度，于是**右边内容的最小宽度被撑大**，主分隔条就
-        #  再也给不了左栏更多宽度 —— 真机 2026-10-05："最大宽度限制太窄，而且只在
-        #  测试实例（名字长）打开时出现"。改成 Ignored：让布局忽略它的宽度诉求。
-        _flexible_labels = (title, self.layout_label, self.status_label)
         self.layout_label.setStyleSheet("color: {};".format(muted_text_color(self)))
 
         self.status_label = QLabel("未启动", bar)
@@ -1068,7 +1063,13 @@ class BotTab(QWidget):
         row.addWidget(self.layout_label)
         row.addStretch(1)
         row.addWidget(self.status_label)
-        for label in _flexible_labels:
+        #  这三个标签的内容会长（机器人名、"只看主程序 | 1 个窗格"……）。QLabel 默认
+        #  把"文字宽度"当成自己的最小宽度，右侧内容的 minimumSizeHint 就被撑大，
+        #  主分隔条再也没法把更多宽度给左栏 —— 真机 2026-10-05："左栏最大宽度被限制
+        #  得太窄，而且只在名字很长的测试实例打开时出现"。改成 Ignored：宽度交给布局。
+        #  ⚠️ 必须在三个标签都创建之后再设置（上一版写在这之前，直接 AttributeError
+        #     崩在启动路径上 —— 已由 check_definition_order.py 的 [3] 段盯着）。
+        for label in (title, self.layout_label, self.status_label):
             label.setMinimumWidth(0)
             label.setSizePolicy(QSizePolicy.Policy.Ignored,
                                 QSizePolicy.Policy.Preferred)

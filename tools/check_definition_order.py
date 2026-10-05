@@ -327,6 +327,110 @@ def run_order_check() -> None:
           "；".join(problems[:4]) + ("…" if len(problems) > 4 else ""))
 
 
+def lazy_attr_problems(source: str, path: str) -> list:
+    """找"某个 self.X 只在本方法里创建，却在创建之前就被读"的地方。
+
+    真机事故（2026-10-05）
+    ---------------------
+    为了让"左栏能拖宽"，把三个标签改成宽度可忽略时，代码写成了：
+
+        _flexible_labels = (title, self.layout_label, self.status_label)   # ← 读
+        ...
+        self.status_label = QLabel("未启动", bar)                          # ← 才创建
+
+    于是 `AttributeError: 'BotTab' object has no attribute 'status_label'`，
+    而且崩在**启动时自动恢复上次打开的窗口**这条路径上 —— 一开管理器就报错。
+
+    为什么 [1][2] 没拦住：导入测试只 import 不实例化，[2] 只看模块级代码，
+    而这是"方法内的语句顺序"问题。
+
+    判定规则（保守，宁可漏报也不误报）：
+      · 只看"整个类里**仅此一处**给 self.X 赋值"的属性 ——
+        如果 __init__ 或别的方法也赋过值，说明它本来就可能存在，先读无罪；
+      · 再看同一条直线路径上，读（Load）是否发生在写（Store）之前。
+    """
+    problems = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return problems
+
+    for cls in [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]:
+        methods = [node for node in cls.body if isinstance(node, ast.FunctionDef)]
+        assign_sites = {}
+        for method in methods:
+            for node in ast.walk(method):
+                if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                        and node.value.id == "self" and isinstance(node.ctx, ast.Store)):
+                    assign_sites.setdefault(node.attr, set()).add(method.name)
+
+        for method in methods:
+            for index, stmt in enumerate(method.body):
+                created = self_attrs_assigned_in(stmt)
+                for name in created:
+                    # 只关心"仅此一处创建"的属性
+                    if len(assign_sites.get(name, ())) != 1:
+                        continue
+                    if any(name in self_attrs_loaded_in(before)
+                           for before in method.body[:index]):
+                        problems.append("{}: {}.{}() 里 self.{} 在读之后才创建".format(
+                            path, cls.name, method.name, name))
+    return problems
+
+
+def self_attrs_assigned_in(node) -> set:
+    """这条语句（含其内部）**创建**了哪些 self.X。
+
+    注意区分"创建属性"和"往已有属性里塞东西"：
+        self._editors = {}           ← 创建（Store）
+        self._editors[key] = value   ← 不是创建（这是给字典塞 key，Attribute 是 Load）
+    第一版没区分，把后者也当成创建，于是 `for key in self._editors:` 之后紧跟
+    `self._editors[k] = v` 的写法被误报（真机 2026-10-05 跑出 14 条误报）。
+    所以这里**只认**"目标本身就是 self.X"的赋值，不再深入 walk 下标/链式属性。
+    """
+    names = set()
+    for child in ast.walk(node):
+        targets = []
+        if isinstance(child, ast.Assign):
+            targets = child.targets
+        elif isinstance(child, (ast.AnnAssign, ast.AugAssign)):
+            targets = [child.target]
+        for target in targets:
+            pieces = (list(target.elts) if isinstance(target, (ast.Tuple, ast.List))
+                      else [target])
+            for piece in pieces:
+                if (isinstance(piece, ast.Attribute) and isinstance(piece.value, ast.Name)
+                        and piece.value.id == "self"):
+                    names.add(piece.attr)
+    return names
+
+
+def self_attrs_loaded_in(node) -> set:
+    """这条语句（含其内部）读了哪些 self.X。"""
+    names = set()
+    for child in ast.walk(node):
+        if (isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name)
+                and child.value.id == "self" and isinstance(child.ctx, ast.Load)):
+            names.add(child.attr)
+    return names
+
+
+def run_lazy_attr_check() -> None:
+    print("\n[3] 方法内：self.X 不许「先用后建」（真机 2026-10-05 启动就 AttributeError）")
+    ui_dirs = (ROOT / "app",)
+    scanned, problems = 0, []
+    for base in ui_dirs:
+        for path in sorted(base.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            scanned += 1
+            problems.extend(lazy_attr_problems(
+                path.read_text(encoding="utf-8", errors="replace"),
+                str(path.relative_to(ROOT))))
+    check("{} 个界面文件没有「先用后建」".format(scanned), not problems,
+          "；".join(problems[:3]) + ("…" if len(problems) > 3 else ""))
+
+
 # 控制台兜底：中文 Windows 的控制台默认是 cp936，编码不了 ▸ / ⇄ / ✓ 这类符号，
 # 直接 print 会抛 UnicodeEncodeError，把检查器自己弄崩（真机踩过：run_all_checks
 # 里两个检查器就是这么红的）。这里统一退化成 ?，绝不因为"输出"而中断检查。
@@ -339,6 +443,7 @@ except (AttributeError, ValueError):
 def main() -> int:
     run_import_check()
     run_order_check()
+    run_lazy_attr_check()
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 
