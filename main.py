@@ -64,6 +64,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Sequence
@@ -855,12 +856,70 @@ def describe_environment(config: BotConfig, theme_mode: str = "") -> str:
 # 入口
 # ---------------------------------------------------------------------------
 
+def _install_crash_logging() -> Optional[str]:
+    """装崩溃日志：Python 异常、以及**致命信号**（段错误/abort）都记到文件里。
+
+    为什么要它（真机 2026-10-05）
+    -----------------------------
+    用户报告"拖动左栏就崩，但 `python main.py --console` 什么也不打印" ——
+    这种情况通常不是普通的 Python 异常（那会打到 stderr），而是：
+      · PyQt 在**槽里**遇到异常时直接 abort（有时只留下一行，容易被吞）；
+      · 或者 Qt/C++ 层的致命错误（访问越界、重复释放），进程直接死掉。
+    `faulthandler` 能在**致命信号**发生时把当时的 Python 调用栈写进文件，
+    `sys.excepthook` 负责普通未捕获异常。两者都写 `launcher_error.log`
+    （已在 .gitignore 里），下次崩了就有据可查。
+
+    返回日志文件路径（装不上就返回 None，绝不影响启动）。
+    """
+    path = Path(__file__).resolve().parent / "launcher_error.log"
+    try:
+        handle = open(path, "ab", buffering=0)
+    except OSError:
+        return None
+
+    try:
+        import faulthandler
+
+        faulthandler.enable(file=handle, all_threads=True)
+    except (ImportError, AttributeError, ValueError, RuntimeError):
+        pass
+
+    def _hook(exc_type, exc_value, exc_tb):
+        try:
+            handle.write("\n=== 未捕获异常 {} ===\n".format(
+                time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=handle)
+            handle.flush()
+        except (OSError, ValueError):
+            pass
+        # 同时按老样子打到 stderr（--console 时能直接看到）
+        traceback.print_exception(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _hook
+
+    def _thread_hook(args):
+        _hook(args.exc_type, args.exc_value, args.exc_traceback)
+
+    try:
+        import threading
+
+        threading.excepthook = _thread_hook
+    except (ImportError, AttributeError):
+        pass
+    return str(path)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """程序主入口：返回进程退出码。"""
     args = list(sys.argv if argv is None else argv)
     parsed = parse_args(args[1:])
     explicit_config = parsed.config_path
     self_test = parsed.self_test
+
+    # 崩溃日志要**尽早**装上（越早，越能覆盖启动期的问题）
+    crash_log = _install_crash_logging()
+    if crash_log and parsed.console:
+        print("崩溃日志：{}".format(crash_log))
 
     # --doctor：只做"导入 + 名字体检"，连 QApplication 都不需要
     if parsed.doctor:
