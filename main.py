@@ -889,15 +889,18 @@ def _install_crash_logging() -> Optional[str]:
     path = Path(__file__).resolve().parent / "launcher_error.log"
     try:
         handle = open(path, "ab", buffering=0)
-    except OSError:
+    except OSError as exc:
+        print("崩溃日志装不上（{}）：{}".format(path, exc))
         return None
 
     try:
         import faulthandler
 
         faulthandler.enable(file=handle, all_threads=True)
-    except (ImportError, AttributeError, ValueError, RuntimeError):
-        pass
+        fault_ok = True
+    except (ImportError, AttributeError, ValueError, RuntimeError) as exc:
+        print("faulthandler 装不上（致命信号将抓不到）：{}".format(exc))
+        fault_ok = False
 
     def _hook(exc_type, exc_value, exc_tb):
         try:
@@ -921,6 +924,9 @@ def _install_crash_logging() -> Optional[str]:
         threading.excepthook = _thread_hook
     except (ImportError, AttributeError):
         pass
+    # 让调用方能告诉用户"到底装上没有"（真机 2026-10-05：崩了却什么都没记下来，
+    # 第一件要排除的就是"崩溃日志压根没装上"）
+    setattr(_install_crash_logging, "faulthandler_ok", fault_ok)
     return str(path)
 
 
@@ -933,8 +939,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # 崩溃日志要**尽早**装上（越早，越能覆盖启动期的问题）
     crash_log = _install_crash_logging()
-    if crash_log and parsed.console:
-        print("崩溃日志：{}".format(crash_log))
+    if crash_log and (parsed.console or parsed.console_here):
+        print("崩溃日志：{}（致命信号捕获：{}）".format(
+            crash_log,
+            "已启用" if getattr(_install_crash_logging, "faulthandler_ok", False)
+            else "未启用"))
 
     # --doctor：只做"导入 + 名字体检"，连 QApplication 都不需要
     if parsed.doctor:
