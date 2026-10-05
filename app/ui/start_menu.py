@@ -9,8 +9,9 @@
 
 对应实现：
   · `StartSelectionMenu` 就是一个 QMenu，挂在「启动全部」右边的 `▾` 按钮上；
-  · 每一行都是**自己画的**：缩进 + 分支符号（`├──` / `└──` / `│`）+ 名称 …… 右侧勾选框。
+  · 每一行都是**自己画的**：缩进 + 名称（+ 浅色后缀）…… 右侧勾选框。
     为什么不用 QAction：Qt 的 action 勾选框在**左边**，而需求要右边，还要层级缩进；
+    层级只靠缩进 + 机器人名加粗（真机反馈：不要 cmd tree 那种制表符号）。
   · 勾/取消**机器人**那一行 → 它下面所有程序跟着变；子项部分勾选时父项显示"半选"；
   · 底部「全选 / 清空」+ 主操作「启动勾选的」。
 """
@@ -33,11 +34,8 @@ from PyQt6.QtWidgets import (
 from app.process_manager import build_manager_key
 from app.ui.program_widget import muted_text_color
 
-#: 分支符号（cmd `tree` 那种；GBK 里也有，控制台复制出来不乱码）
-BRANCH_MIDDLE = "├──"
-BRANCH_LAST = "└──"
-#: 每级缩进的像素
-LEVEL_INDENT = 16
+#: 每级缩进的像素（层级只靠缩进表达 —— 真机反馈：不要 cmd `tree` 那种制表符号）
+LEVEL_INDENT = 22
 #: 菜单最小宽度 / 列表最大高度（机器人多的时候别顶出屏幕）
 MENU_MIN_WIDTH = 340
 LIST_MAX_HEIGHT = 420
@@ -56,29 +54,34 @@ def startable_programs(bot) -> List:
 
 
 class _CheckRow(QWidget):
-    """一行：缩进 + 分支符号 + 名称 …… 右侧勾选框（点整行也能切换）。"""
+    """一行：缩进 + 名称 ……（浅色后缀）+ 右侧勾选框（点整行也能切换）。
+
+    层级只靠**缩进**表达 —— 真机反馈（2026-10-05）：不要 cmd `tree` 那种 `├──`
+    制表符号，去掉之后间距调好就很干净；机器人名加粗、后缀（当前 / 主程序）用次要文字色。
+    """
 
     def __init__(self, text: str, box: QCheckBox, indent: int = 0,
-                 glyph: str = "", suffix: str = "", parent: Optional[QWidget] = None) -> None:
+                 suffix: str = "", bold: bool = False,
+                 parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.box = box
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10 + indent, 2, 10, 2)
-        layout.setSpacing(6)
-
-        if glyph:
-            marker = QLabel(glyph, self)
-            font = QFont(marker.font())
-            font.setFamily("Consolas")
-            font.setStyleHint(QFont.StyleHint.Monospace)
-            marker.setFont(font)
-            marker.setStyleSheet("color: {};".format(muted_text_color(self)))
-            layout.addWidget(marker)
+        layout.setContentsMargins(12 + indent, 3, 12, 3)
+        layout.setSpacing(8)
 
         label = QLabel(text, self)
+        if bold:
+            font = QFont(label.font())
+            font.setBold(True)
+            label.setFont(font)
+        layout.addWidget(label, 0)
+
         if suffix:
-            label.setText("{}  {}".format(text, suffix))
-        layout.addWidget(label, 1)
+            hint = QLabel(suffix, self)
+            hint.setStyleSheet("color: {};".format(muted_text_color(self)))
+            layout.addWidget(hint, 0)
+
+        layout.addStretch(1)
         layout.addWidget(box, 0, Qt.AlignmentFlag.AlignRight)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
@@ -133,23 +136,23 @@ class StartSelectionMenu(QMenu):
             bot_box.setToolTip("勾选后，这个机器人下面的程序一起启动")
             bot_keys: List[str] = []
 
+            # 机器人之间留一点空，视觉上分组（机器人名加粗，不用符号也能看出层级）
+            if bot_index:
+                column.addSpacing(6)
             column.addWidget(_CheckRow(
-                getattr(bot, "name", bot.id), bot_box, indent=0,
-                glyph="▍" if bot.id == self._current_bot_id else "",
+                getattr(bot, "name", bot.id), bot_box, indent=0, bold=True,
                 suffix="（当前）" if bot.id == self._current_bot_id else "",
                 parent=holder))
 
-            for program_index, program in enumerate(programs):
+            for program in programs:
                 key = build_manager_key(bot.id, program.id)
                 bot_keys.append(key)
                 box = QCheckBox(holder)
                 box.setChecked(True)                      # 默认全勾
                 box.toggled.connect(self._sync_bot_rows)
                 self._boxes[key] = box
-                is_last = program_index == len(programs) - 1
                 column.addWidget(_CheckRow(
                     program.name, box, indent=LEVEL_INDENT,
-                    glyph=(BRANCH_LAST if is_last else BRANCH_MIDDLE),
                     suffix="（主程序）" if program.role == "primary" else "",
                     parent=holder))
 

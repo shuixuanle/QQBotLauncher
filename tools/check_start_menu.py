@@ -8,7 +8,7 @@
 > 勾选 ATRI bot 时，它下面三个小程序默认一起勾上。
 
 这里盯住的就是上面这几条 —— 以后谁改菜单，别把这些悄悄改没了：
-  [1] 结构：QMenu + 树形行 + 右侧勾选框（不能退回 QAction 的左侧勾选）
+  [1] 结构：QMenu + 缩进层级 + 右侧勾选框（不能退回 QAction 的左侧勾选）
   [2] 联动：勾机器人 → 子项全跟着；子项部分勾 → 父项半选
   [3] 默认：菜单按当前机器人预勾选（点开直接确定 = 启动这个机器人）
   [4] 接线：只有一条启动路径（复用 _on_tab_start_requested），没写第二份
@@ -44,6 +44,30 @@ except (AttributeError, ValueError):
     pass
 
 
+def glyph_literals(source: str) -> list:
+    """界面代码里出现的"制表符号 / 前缀标记"字面量（文档字符串不算）。
+
+    真机反馈（2026-10-05）：`├──` `└──` `▍` 这些都不该出现在菜单里 ——
+    层级只用缩进 + 机器人名加粗表达。文档字符串里解释"为什么不用"是允许的。
+    """
+    glyphs = ("\u251c", "\u2514", "\u2502", "\u258d", "\u2500")
+    tree = ast.parse(source)
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", [])
+            if body and isinstance(body[0], ast.Expr) \
+                    and isinstance(body[0].value, ast.Constant):
+                docstrings.add(id(body[0].value))
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and id(node) not in docstrings:
+            if any(glyph in node.value for glyph in glyphs):
+                found.append(node.value[:24])
+    return found
+
+
 def methods(source: str, cls: str = "") -> dict:
     """类里的方法名 → 源码片段（cls 为空时取模块级函数）。"""
     tree = ast.parse(source)
@@ -70,17 +94,24 @@ def main() -> int:
     window_src = WINDOW.read_text(encoding="utf-8")
     menu_methods = methods(menu_src, "StartSelectionMenu")
 
-    print("\n[1] 结构：QMenu + 树形分支 + **右侧**勾选框")
+    print("\n[1] 结构：QMenu + 缩进层级 + **右侧**勾选框")
     check("有 StartSelectionMenu(QMenu)", "class StartSelectionMenu(QMenu)" in menu_src)
     check("有信号 startRequested(list)", "startRequested = pyqtSignal(list)" in menu_src)
-    check("分支符号 ├── / └── 都在", "├──" in menu_src and "└──" in menu_src)
-    check("程序行用分支符号（不是随便缩进一下）",
-          "BRANCH_LAST" in menu_src and "BRANCH_MIDDLE" in menu_src)
+    # 真机反馈（2026-10-05）：不要 cmd tree 那种制表符号，层级只靠缩进 + 加粗
+    check("界面代码里没有制表符号/前缀标记（├ └ │ ▍）",
+          not glyph_literals(menu_src), str(glyph_literals(menu_src)[:3]))
+    check("没有 BRANCH_* 分支符号常量", "BRANCH_MIDDLE" not in menu_src
+          and "BRANCH_LAST" not in menu_src)
+    check("层级靠缩进表达（LEVEL_INDENT）", "LEVEL_INDENT" in menu_src)
+    check("机器人名加粗（代替符号看层级）", "bold=True" in menu_src
+          and "font.setBold(True)" in menu_src)
+    check("后缀用次要文字色（浅色字）", "muted_text_color" in menu_src)
+    check("没有 ▍ 之类的前缀标记", "\u258d" not in menu_src)
     check("勾选框靠右（AlignRight）", "AlignRight" in menu_src)
     check("勾选框不带文字（文字在左边单独一个 QLabel）",
           not any(token in menu_src for token in ('QCheckBox("', "QCheckBox('")))
     check("菜单标题「选择启动的程序」", "选择启动的程序" in menu_src)
-    check("标题/分支用主题的次要文字色（浅色字）", "muted_text_color" in menu_src)
+    check("标题/后缀用主题的次要文字色（浅色字）", "muted_text_color" in menu_src)
     check("点整行也能勾（不用瞄准小方框）", "def mousePressEvent" in menu_src)
     check("机器人多时列表可滚动", "QScrollArea" in menu_src)
 
