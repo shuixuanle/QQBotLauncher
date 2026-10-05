@@ -98,6 +98,23 @@ def main() -> int:
           "layout.indexOf(self.count_label)" in adopt
           and "layout.removeWidget(self.count_label)" in adopt)
 
+    print("\n[4] 长标签不许顶住最小宽度（真机 2026-10-05）")
+    #  现象："左栏最大宽度被限制得太窄"，而且**只在名字很长的测试实例打开时**出现。
+    #  原因不是左栏 —— 是右侧的两个标题行（机器人名 / 程序名都很长）把右侧的
+    #  minimumSizeHint 撑大了，主分隔条于是没法把更多宽度给左栏。
+    #  QLabel 默认拿"文字宽度"当最小宽度，所以这些标签必须设成 Ignored。
+    tab_src = (ROOT / "app" / "ui" / "bot_tab.py").read_text(encoding="utf-8")
+    widget_src = (ROOT / "app" / "ui" / "program_widget.py").read_text(encoding="utf-8")
+    check("  机器人标题行的标签设成了 Ignored（宽随布局）",
+          "_flexible_labels = (title, self.layout_label, self.status_label)" in tab_src
+          and "QSizePolicy.Policy.Ignored" in tab_src)
+    check("  窗格标题行的标签也设成了 Ignored",
+          "for _label in (self.title_label, self.status_label, self.count_label):"
+          in widget_src)
+    check("  两处都顺手把最小宽度清零",
+          tab_src.count("label.setMinimumWidth(0)") >= 1
+          and widget_src.count("_label.setMinimumWidth(0)") >= 1)
+
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 

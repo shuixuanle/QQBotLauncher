@@ -249,6 +249,14 @@ class ProgramWidget(QWidget):
         header_row.addWidget(self.title_label)
         header_row.addWidget(self.status_label)
         header_row.addStretch(1)
+        #  窗格标题里的程序名可能很长（"A 主程序（彩色输出）"），而 QLabel 默认把
+        #  "文字宽度"当成历史最小宽度 —— 多窗格并排时它会把整个右侧的最小宽度撑大，
+        #  主分隔条就再也不能把更多宽度给左栏（真机 2026-10-05：只有名字很长的测试
+        #  实例会出现这个现象）。改成 Ignored：宽度由布局决定，文字该省略就省略。
+        for _label in (self.title_label, self.status_label, self.count_label):
+            _label.setMinimumWidth(0)
+            _label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                 QSizePolicy.Policy.Preferred)
 
         # --- 按钮组（与标题同一行）---
         self.toolbar = QWidget(self.header)
