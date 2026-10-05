@@ -44,7 +44,7 @@ python -c "from PyQt6.QtCore import QT_VERSION_STR; print('PyQt6 Qt', QT_VERSION
 ### 提问前先自查（能省一轮往返）
 
 ```bat
-python tools\run_all_checks.py     :: 28 个静态检查一次跑完
+python tools\run_all_checks.py     :: 29 个静态检查一次跑完
 python main.py --doctor            :: 只做导入与名字体检，不需要图形界面
 python main.py --theme-debug       :: 外观相关问题（打印主题诊断并写 theme_debug.log）
 python main.py --nav-debug         :: 左侧列表相关问题
@@ -106,12 +106,12 @@ UI：合并重复的窗格标题行
 ### 自检（必须全绿）
 
 ```bat
-python tools\run_all_checks.py          :: 一次跑完 28 个检查器
+python tools\run_all_checks.py          :: 一次跑完 29 个检查器
 python tools\run_all_checks.py -v       :: 需要看细节时
 python main.py --selftest               :: GUI 自检（环境与配置摘要）
 ```
 
-28 个检查器各自盯着一个真实踩过的坑，例如：
+29 个检查器各自盯着一个真实踩过的坑，例如：
 
 | 检查器 | 挡住的坑 |
 | --- | --- |
@@ -131,6 +131,7 @@ python main.py --selftest               :: GUI 自检（环境与配置摘要）
 | `check_console_output.py` | 检查器崩在 print 上（中文 Windows 控制台是 cp936，编不出 ▸ ⇄ 这类符号） |
 | `check_command_argv.py` | 给 QProcess 的 argv 里混进引号（`python -c "…"` 的代码被当成字符串字面量，进程秒退、退出码 0） |
 | `check_repo_layout.py` | 仓库又乱回去：根目录冒出杂物、tools/ 里多出来历不明的脚本、生成物没进 .gitignore、README 结构图过期 |
+| `check_start_menu.py` | 「启动全部 ▾」的树形勾选被改坏：勾选框跑到左边、勾机器人不带子项、启动路径被写成第二份 |
 | `check_hydrant_command.py` | 提权命令被写成三层引号（PowerShell 把命令打印出来、程序没启动，退出码还是 0） |
 | `check_hydrant_launcher.py` | 提权启动脚本写歪：非 ASCII / 纯 LF 换行 / 少了 `-Wait` / **在 `( )` 块里用 `%CD%`**（真机事故：路径被算成脚本目录）；本机没有该脚本时自动跳过 |
 

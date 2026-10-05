@@ -3777,6 +3777,7 @@ class MainWindow(QMainWindow):
         except AttributeError:
             pass
         tab.startRequested.connect(self._on_tab_start_requested)
+        tab.startMenuRequested.connect(self._on_start_menu_requested)
         tab.stopRequested.connect(self._on_tab_stop_requested)
         tab.restartRequested.connect(self._on_tab_restart_requested)
         tab.editRequested.connect(self.edit_bot)
@@ -4355,6 +4356,32 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("正在停止 {} 个程序…".format(len(running)), 5000)
         self.refresh_status()
         return len(running)
+
+    def _on_start_menu_requested(self, bot_id: str, global_pos) -> None:
+        """「启动全部 ▾」：弹出树形勾选菜单，只启动勾选的程序。
+
+        菜单列出**所有**机器人（和左侧栏同一套层级），当前机器人标成"（当前）"、
+        默认勾选它下面的程序 —— 所以从某个窗口点开时，默认行为仍然是"启动这个机器人"。
+        勾了别的机器人也一样能启动（等于一个"挑着启动"的入口）。
+
+        选完复用 `_on_tab_start_requested`：启动路径只有一条，别写第二份。
+        """
+        try:
+            from app.ui.start_menu import StartSelectionMenu
+        except ImportError as exc:                      # pragma: no cover - 理论到不了
+            self.statusBar().showMessage("启动选择菜单打不开：{}".format(exc), 8000)
+            return
+
+        bots = list(getattr(self.config, "bots", []) or [])
+        if not bots:
+            self.statusBar().showMessage("还没有配置任何机器人。", 6000)
+            return
+
+        menu = StartSelectionMenu(bots, current_bot_id=bot_id, parent=self)
+        menu.startRequested.connect(self._on_tab_start_requested)
+        # 打开时：只勾"当前机器人"那棵子树，其它机器人默认不勾
+        menu.focus_on(bot_id)
+        menu.exec(global_pos)
 
     def _on_tab_start_requested(self, keys: List[str]) -> None:
         """Tab 内点击「启动」：按 key 反查程序并启动。"""

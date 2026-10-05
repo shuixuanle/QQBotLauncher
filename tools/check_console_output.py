@@ -60,7 +60,14 @@ def gbk_safe(text: str) -> bool:
 
 
 def printed_literals(tree: ast.AST):
-    """产出 (行号, 字符串)：`print(...)` / `check(...)` 里**写死**的字符串。"""
+    """产出 (行号, 字符串)：**真会被打印出来**的字面量。
+
+    规则按调用点分：
+      · `print(...)`  —— 全部参数都会进控制台，逐个看；
+      · `check(标签, 条件, 详情)` —— 只有第 1 个（标签）和第 3 个（详情）会被打印，
+        第 2 个是**判断条件**（里面可能有 `▸` 之类的"要找的字符串"，
+        它永远不会被打印）—— 早期版本连条件一起看，误报过（真机 2026-10-05）。
+    """
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -69,7 +76,12 @@ def printed_literals(tree: ast.AST):
             func.attr if isinstance(func, ast.Attribute) else "")
         if name not in PRINT_CALLS:
             continue
-        for piece in ast.walk(node):
+        positions = (0, 2) if name in ("check", "warn", "log") and len(node.args) >= 2 \
+            else tuple(range(len(node.args)))
+        for index in positions:
+            if index >= len(node.args):
+                continue
+            piece = node.args[index]
             if isinstance(piece, ast.Constant) and isinstance(piece.value, str):
                 yield piece.lineno, piece.value
 

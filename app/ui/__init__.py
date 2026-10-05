@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """QQBot 启动管理器 - 界面包。
 
-包含五个界面模块（本文件刻意不在导入时自动加载它们，以避免循环导入）：
+包含六个界面模块（本文件刻意不在导入时自动加载它们，以避免循环导入）：
 
     main_window.py       主窗口：顶部工具栏、左侧竖栏导航、实例区、QSettings 持久化
     bot_tab.py           单个 Bot 的实例区：递归窗格树（分屏 / 底部程序标签）
     program_widget.py    只读日志控件，核心接口 append_log(text)（含 ANSI 上色）
     edit_bot_dialog.py   新建 / 编辑 Bot 的对话框
     palette_dialog.py    配色工作台（视图 → 外观 → 配色工作台…），改完立即生效
+    start_menu.py        「启动全部 ▾」的树形勾选菜单（挑这次要启动哪些程序）
 
 推荐导入方式（显式到模块，不做包级别的预加载）：
 

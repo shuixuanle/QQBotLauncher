@@ -108,6 +108,16 @@ def headings(text: str) -> set:
     return found
 
 
+def duplicate_anchors(text: str) -> list:
+    """同一个显式锚点出现多次的 id 列表。
+
+    两条不同的标题挂同一个 id 时，目录里两条链接会跳到同一处
+    （2026-10-05 往 3.1 后面插小节时踩过：新小节顺手"继承"了上一节的 id）。
+    """
+    ids = re.findall(r'<a id="([^"]+)"></a>', text)
+    return sorted({item for item in ids if ids.count(item) > 1})
+
+
 def unsafe_headings(text: str) -> list:
     """标题里带"跨实现有歧义的标点"、却没有显式锚点的那些行。
 
@@ -184,6 +194,9 @@ def main() -> int:
         label_problems = toc_label_problems(text)
         check("{}：目录链接文字安全（方括号配对/转义，文字与标题一致）".format(rel),
               not label_problems, str(label_problems[:3]))
+        dup_ids = duplicate_anchors(text)
+        check("{}：显式锚点没有重复（重复会让两条链接跳到同一处）".format(rel),
+              not dup_ids, str(dup_ids))
         # 带中文标点的标题必须配显式锚点（否则 GitHub 上的跳转要靠猜，真出过问题）
         problems = unsafe_headings(text)
         check("{}：带中文标点的标题都配了显式锚点（不靠 GitHub 猜标点）".format(rel),
