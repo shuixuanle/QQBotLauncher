@@ -44,6 +44,31 @@ except (AttributeError, ValueError):
     pass
 
 
+def runtime_strings(source: str) -> list:
+    """源码里**真正会执行到**的字符串常量（文档字符串/注释不算）。
+
+    为什么需要：解释性注释里往往写着"以前那样是错的""不再写 xxx"，
+    直接 `"xxx" not in source` 会被自己的注释绊倒（写这版时就绊了两次）。
+    """
+    tree = ast.parse(source)
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", [])
+            if body and isinstance(body[0], ast.Expr) \
+                    and isinstance(body[0].value, ast.Constant):
+                docstrings.add(id(body[0].value))
+    return [node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and id(node) not in docstrings]
+
+
+def uses_attribute(source: str, name: str) -> bool:
+    """代码里有没有用到某个属性/枚举名（例如 MenuButtonPopup）。"""
+    return any(isinstance(node, ast.Attribute) and node.attr == name
+               for node in ast.walk(ast.parse(source)))
+
+
 def glyph_literals(source: str) -> list:
     """界面代码里出现的"制表符号 / 前缀标记"字面量（文档字符串不算）。
 
@@ -127,7 +152,16 @@ def main() -> int:
           "self._set_group(" in menu_src and "bot_action.toggled.connect" in menu_src)
     check("有 _sync_bot_rows（父项刷新）", "_sync_bot_rows" in menu_methods)
     check("父项勾选 = 子项全勾", "action.setChecked(chosen == len(states))" in menu_src)
-    check("行尾写「已选 n/m」", "已选 {}/{}" in menu_src)
+    check("行尾**不再**写「已选 n/m」（真机反馈：多余）",
+          not any("已选" in item for item in runtime_strings(menu_src)))
+    check("点勾选行不关菜单（拦下 mouseReleaseEvent，只 trigger 不返回 super）",
+          "def mouseReleaseEvent" in menu_src
+          and "action.trigger()" in menu_src
+          and "return                    # ← 不调用 super()" in menu_src)
+    check("「全选 / 清空」也留在菜单里（KEEP_OPEN_FLAG）",
+          "KEEP_OPEN_FLAG" in menu_src and menu_src.count("setProperty(KEEP_OPEN_FLAG") == 2)
+    check("「启动勾选的」不标 keep_open（点完要关菜单）",
+          "KEEP_OPEN_FLAG" not in menu_methods.get("_build_footer", "").split("start = QAction")[1])
     check("子项变化会刷新父项",
           "self._sync_bot_rows" in menu_methods.get("_build_tree", ""))
     check("机器人名单独记着（不靠拆文本反解析）", "_bot_names" in menu_src)
@@ -171,13 +205,23 @@ def main() -> int:
           'self.action_start_bot = QAction("启动当前 Bot"' in window_src
           and "bot_menu.addAction(self.action_start_bot)" in window_src)
 
-    check("顶部「启动全部」是分裂按钮（点文字=全启动，点箭头=挑着启动）",
+    #  真机事故（2026-10-05）：MenuButtonPopup 分裂按钮在菜单关掉的那一下会被
+    #  "穿透"点击，默认动作 = 启动全部 —— 用户只勾了一下，程序却起来了。
+    #  所以改成「启动全部」按钮 + 紧跟一个独立的小箭头按钮。
+    check("顶部「启动全部」按钮仍在（一键全启动）",
           "self.start_all_button = QToolButton(bar)" in window_src
-          and "MenuButtonPopup" in window_src
           and "setDefaultAction(self.action_start_all)" in window_src)
-    check("分裂按钮挂的是勾选菜单，并且每次展开前重建",
-          "self.start_all_button.setMenu(self.build_start_selection_menu())" in window_src
-          and "aboutToShow.connect(self._refresh_start_selection_menu)" in window_src)
+    check("**不用** MenuButtonPopup 分裂按钮（会被穿透点击）",
+          not uses_attribute(window_src, "MenuButtonPopup"))
+    check("旁边是独立的小箭头按钮，挂勾选菜单",
+          'self.start_pick_button.setText("▾")' in window_src
+          and "self.start_pick_button.setMenu(self.build_start_selection_menu())"
+          in window_src)
+    check("小箭头是 InstantPopup（点一下就弹菜单）",
+          "InstantPopup" in window_src)
+    check("菜单每次展开前重建",
+          "self.start_pick_button.menu().aboutToShow.connect(" in window_src
+          and "self._refresh_start_selection_menu)" in window_src)
     check("勾选菜单复用 _on_tab_start_requested（启动路径只有一条）",
           "menu.startRequested.connect(self._on_tab_start_requested)" in window_src)
     check("菜单按当前机器人预勾选", "focus_on" in window_src

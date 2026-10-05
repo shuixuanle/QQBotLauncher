@@ -16,7 +16,8 @@ QCheckBox）。功能对，但长相和「布局 ▾」「视图」那些菜单*
 
   · 勾选标记回到**菜单原生的左边那一列**（和「布局 ▾」里的"只看主程序"一模一样）；
   · 层级只用**缩进**表达（全角空格 U+3000，中文界面字体下宽度稳定）；
-  · 机器人那一行点一下 = 这一组全选 / 全不选，行尾写着"已选 2/3"，一眼看出选了哪些；
+  · 机器人那一行点一下 = 这一组全选 / 全不选（子项没选全时父项不打勾）；
+  · **点勾选行不关菜单**（想连勾三个不用开三次）—— 见 mouseReleaseEvent；
   · 不再自己画任何控件 —— 也因此不需要滚动区（菜单过长时 Qt 自己会滚）。
 """
 
@@ -30,6 +31,9 @@ from app.process_manager import build_manager_key
 
 #: 一级缩进（全角空格；普通空格在比例字体里太窄，看不出层级）
 INDENT = "\u3000\u3000"
+
+#: 标了这个属性的 action：点完**不关菜单**（见 mouseReleaseEvent）
+KEEP_OPEN_FLAG = "keep_menu_open"
 
 
 def startable_programs(bot) -> List:
@@ -109,16 +113,39 @@ class StartSelectionMenu(QMenu):
     def _build_footer(self) -> None:
         self.addSeparator()
         pick_all = QAction("全选", self)
+        pick_all.setProperty(KEEP_OPEN_FLAG, True)
         pick_all.triggered.connect(lambda: self._set_all(True))
         self.addAction(pick_all)
         clear = QAction("清空", self)
+        clear.setProperty(KEEP_OPEN_FLAG, True)
         clear.triggered.connect(lambda: self._set_all(False))
         self.addAction(clear)
         self.addSeparator()
+        #: 只有这一项点完关菜单（要的就是"选完就走"）
         start = QAction("启动勾选的", self)
         start.triggered.connect(self._emit_start)
         self.addAction(start)
         self.start_action = start
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        """点勾选行 = 只切换勾选，**不关菜单**。
+
+        真机反馈（2026-10-05）："选择时会出现点一下即下拉栏消失的情况" ——
+        QMenu 的默认行为是"激活一个 action 就关菜单"，对勾选框来说很难用
+        （想连勾三个得开三次）；更糟的是菜单关掉后这一下还可能**穿透**到
+        下面的按钮上（用户看到的就是"点了就直接启动"）。
+
+        所以这里拦下这一下：可勾选的行只 toggle、不激活、不关闭；
+        「全选 / 清空」也留在菜单里（标了 KEEP_OPEN_FLAG）；
+        其余项（启动勾选的）走默认行为，点完正常关闭。
+        """
+        action = self.activeAction()
+        if action is not None and action.isEnabled() and (
+                action.isCheckable() or action.property(KEEP_OPEN_FLAG)):
+            action.trigger()          # 可勾选的会自己 toggle，并发出 toggled 信号
+            event.accept()
+            return                    # ← 不调用 super()：菜单保持打开
+        super().mouseReleaseEvent(event)
 
     # ------------------------------------------------------------------
     # 勾选联动
@@ -142,7 +169,7 @@ class StartSelectionMenu(QMenu):
         self._sync_bot_rows()
 
     def _sync_bot_rows(self) -> None:
-        """子项变化后刷新父项：勾选状态 + 行尾的"已选 n/m"。"""
+        """子项变化后刷新父项：勾选状态（全勾才打勾）+「（当前）」后缀。"""
         for bot_id, (action, keys) in self._bot_rows.items():
             states = [self._actions[key].isChecked()
                       for key in keys if key in self._actions]
@@ -153,9 +180,10 @@ class StartSelectionMenu(QMenu):
             chosen = sum(1 for item in states if item)
             current = "（当前）" if bot_id == self._current_bot_id else ""
             action.blockSignals(True)
-            action.setText("{}  {}{}已选 {}/{}".format(
-                self._bot_names.get(bot_id, bot_id), current,
-                "· " if current else "", chosen, len(states)))
+            # 行尾不再写"已选 n/m"（真机反馈：多余）—— 勾选列本身就能看出全选与否；
+            # 只勾了一部分时父项不打勾，这已经足够表达"这组没选全"。
+            action.setText("{}{}".format(
+                self._bot_names.get(bot_id, bot_id), current))
             action.setChecked(chosen == len(states))
             action.blockSignals(False)
 

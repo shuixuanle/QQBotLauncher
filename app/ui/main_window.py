@@ -1026,18 +1026,28 @@ class MainWindow(QMainWindow):
         bar.addAction(self.action_open_config)
         bar.addSeparator()
         # 全局动作放最后（用得最少，且影响面最大）
-        # 「启动全部 ▾」：点文字 = 一键全启动（老行为），点右边小箭头 = 挑着启动
+        # 「启动全部」+ 紧跟一个独立的小箭头按钮（不是 MenuButtonPopup 分裂按钮）。
+        # 为什么分开（真机事故 2026-10-05）：菜单关掉的那一下会**穿透**到按钮上，
+        # 分裂按钮的默认动作就是"启动全部"，用户看到的就成了"我只是勾了一下，
+        # 结果程序被启动了"。改成两个控件后，穿透最多把菜单再打开一次，不会有副作用。
         self.start_all_button = QToolButton(bar)
         self.start_all_button.setDefaultAction(self.action_start_all)
         self.start_all_button.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.start_all_button.setPopupMode(
-            QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self.start_all_button.setMenu(self.build_start_selection_menu())
-        self.start_all_button.menu().aboutToShow.connect(self._refresh_start_selection_menu)
-        self.start_all_button.setToolTip(
-            "点文字 = 启动全部；点右边小箭头 = 勾选这次要启动哪些程序")
+        self.start_all_button.setToolTip("一键启动所有启用的机器人")
         bar.addWidget(self.start_all_button)
+
+        self.start_pick_button = QToolButton(bar)
+        self.start_pick_button.setText("▾")
+        self.start_pick_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.start_pick_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.start_pick_button.setMenu(self.build_start_selection_menu())
+        self.start_pick_button.menu().aboutToShow.connect(
+            self._refresh_start_selection_menu)
+        self.start_pick_button.setToolTip("勾选这次要启动哪些程序（只启动勾上的）")
+        bar.addWidget(self.start_pick_button)
         bar.addAction(self.action_stop_all)
         # 始终可用：它就是"那一排操作按钮"，折叠左栏后更离不开它
         bar.setVisible(True)
