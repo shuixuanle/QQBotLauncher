@@ -115,6 +115,26 @@ def main() -> int:
           tab_src.count("label.setMinimumWidth(0)") >= 1
           and widget_src.count("_label.setMinimumWidth(0)") >= 1)
 
+    print("\n[5] 标题栏：文字必须看得见（真机反馈：操作左边没有文字）")
+    if "def _build_title_bar(" in tab_src:
+        _start = tab_src.index("def _build_title_bar(")
+        _end = tab_src.index("\n    def ", _start + 10)
+        title_bar = tab_src[_start:_end]
+    else:
+        title_bar = ""
+    check("  标题带 stretch=1（剩余空间归标题）",
+          "row.addWidget(self.title_label, 1)" in title_bar)
+    check("  标题栏里没有 addStretch 抢空间（会把 Ignored 的标题挤成 0 宽）",
+          "row.addStretch(1)" not in title_bar)
+    check("  标题是 Ignored（不按文字宽度抢空间，避免左右分屏互顶）",
+          "self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored" in title_bar)
+    check("  状态/PID/行数没被设成 Ignored（否则会看不见）",
+          "self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored" not in title_bar)
+    check("  缩略模式：窄的时候四个按钮合并成一个下拉（操作按钮）",
+          "self.actions_button" in title_bar
+          and "_update_compact_mode" in tab_src
+          and "COMPACT_WIDTH" in tab_src)
+
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 

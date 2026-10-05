@@ -387,11 +387,15 @@ class PaneWidget(QWidget):
         self.actions_button.setMaximumHeight(22)
         self.actions_button.setVisible(False)      # 默认宽度够，先不显示
 
-        row.addWidget(self.title_label)
+        row.addWidget(self.title_label, 1)     # 1 = 标题吃掉剩余空间（见下面的说明）
         row.addWidget(self.status_label)
         row.addWidget(self.pid_label)
         row.addWidget(self.count_label)
-        row.addStretch(1)
+        #  ⚠️ 这里**不能**再 addStretch(1)：上一步给标题设了 Ignored 尺寸策略
+        #  （不按文字宽度索要空间，避免左右分屏抢宽度），而 Ignored 的控件在
+        #  布局里"给多少用多少" —— 如果此时还有个 stretch 抢剩余空间，标题就会
+        #  被分到 **0 宽**，整行文字全空（真机 2026-10-05 截图："操作左边没有文字"）。
+        #  现在把 stretch 去掉、让标题自己带 stretch=1，剩余空间就归标题。
         for button in (self.start_button, self.stop_button, self.restart_button,
                        self.clear_button):
             button.setMaximumHeight(22)
@@ -399,12 +403,14 @@ class PaneWidget(QWidget):
             button.setMinimumWidth(0)
             row.addWidget(button)
         row.addWidget(self.actions_button)
-        # 标题/状态等文字：宽度随布局，放不下就省略（鼠标移上去有完整 tooltip）
-        for label in (self.title_label, self.status_label, self.pid_label,
-                      self.count_label):
+        # 标题：宽度随布局、放不下就裁掉（鼠标移上去有完整 tooltip）
+        self.title_label.setMinimumWidth(0)
+        self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                       QSizePolicy.Policy.Preferred)
+        # 状态 / PID / 行数：都很短（"已停止"、"PID 35888"、"46 行"），
+        # 用默认策略即可 —— 它们的索要空间很小，不会造成抢宽度，但必须看得见。
+        for label in (self.status_label, self.pid_label, self.count_label):
             label.setMinimumWidth(0)
-            label.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                QSizePolicy.Policy.Preferred)
         self._compact = False
         return bar
 
