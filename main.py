@@ -139,6 +139,8 @@ class StartupArgs(NamedTuple):
     no_elevate: bool = False
     #: 申请一个**属于自己的**控制台窗口（`--console`，想看日志时用）
     console: bool = False
+    #: 与 --console 一起用：**不另开窗口**，日志就留在这个 cmd 里（诊断用）
+    console_here: bool = False
     #: 脱离启动：用 pythonw 重新启动自己，屏幕上只剩管理器界面（`--gui`）
     gui: bool = False
 
@@ -157,6 +159,7 @@ def parse_args(argv: Sequence[str]) -> StartupArgs:
         --elevate            以管理员身份重新启动自己（弹一次 UAC；内部用 --no-elevate 防套娃）
         --gui                脱离启动（pythonw，零控制台）：cmd 立即返回，只留管理器界面
         --console            申请一个独立控制台窗口（想看到日志输出时用）
+    --console-here       同上，但不另开窗口：日志留在这个 cmd 里（诊断用）
         --selftest / --bare / -t
         --help / -h
     """
@@ -171,6 +174,7 @@ def parse_args(argv: Sequence[str]) -> StartupArgs:
     elevate = False
     no_elevate = False
     console = False
+    console_here = False
     gui = False
 
     index = 0
@@ -231,7 +235,11 @@ def parse_args(argv: Sequence[str]) -> StartupArgs:
             gui = True
             index += 1
             continue
-        if item == "--console":
+        if item == "--console-here":
+            # 诊断专用：不要另开控制台，输出就留在这个 cmd 里
+            console = True
+            console_here = True
+        elif item == "--console":
             # 要一个属于自己的控制台窗口（想看日志时用，会多一个窗口）
             console = True
             index += 1
@@ -247,7 +255,7 @@ def parse_args(argv: Sequence[str]) -> StartupArgs:
 
     return StartupArgs(
         config_path, self_test, theme, force_palette, remember_theme, doctor,
-        nav_debug, theme_debug, elevate, no_elevate, console, gui,
+        nav_debug, theme_debug, elevate, no_elevate, console, console_here, gui,
     )
 
 
@@ -954,7 +962,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # --console：想看到日志输出时用 —— 让管理器独占一个控制台窗口，
     # 原来那个 cmd 随即退出（子进程带 QQBOT_GUI_CHILD 标记，不会无限重启）。
-    if parsed.console:
+    if parsed.console and parsed.console_here:
+        # 诊断用：输出就留在**当前这个 cmd**（不另开窗口、也不换控制台），
+        # traceback / faulthandler 的文字因此都看得见
+        print("已按 --console-here 启动：日志与崩溃信息都会留在当前这个窗口。")
+    elif parsed.console:
         if relaunch_with_own_console():
             print("已用独立控制台重新启动管理器；这个窗口（原 cmd）可以关掉了。")
             return 0

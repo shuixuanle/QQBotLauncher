@@ -1342,6 +1342,15 @@ class BotTab(QWidget):
             # 这个槽在**拖动分隔条时连续触发**（Qt 信号槽）—— 里面抛异常会被 PyQt6
             # 直接终止进程（真机踩过好几次"拖一下就闪退"）。宁可少记一次比例，
             # 也不能把管理器带走。
+            #
+            # ⚠️ 关键：**程序化改尺寸也会触发 splitterMoved**（Qt 的 setSizes()
+            # 走的是同一套 doMove），于是"改尺寸 → 记比例 → 定时器 → 通知保存 →
+            # 再改尺寸"会转成一个死循环 —— 真机 2026-10-05："左侧栏一拖就崩，
+            # 而且只有左右分屏时才有"（单窗格没有窗格分隔条，转不起来）。
+            # 所以这里只认**用户真正按着分隔条**的那些事件：没有 handle 处于按下
+            # 状态就说明是程序化移动，直接忽略。
+            if not self._any_handle_down():
+                return
             try:
                 self._capture_pane_sizes()
             except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
@@ -1354,6 +1363,16 @@ class BotTab(QWidget):
             splitter.splitterMoved.connect(_moved)
         except (AttributeError, TypeError):
             pass
+
+    def _any_handle_down(self) -> bool:
+        """界面上有没有分隔条正被用户按住（用来区分"用户拖动"和"程序化改尺寸"）。"""
+        try:
+            for splitter in self._splitters():
+                if self._is_dragging(splitter):
+                    return True
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return False
+        return False
 
     def _on_split_settled(self) -> None:
         """分隔条停止拖动：把新的比例通知出去（主窗口写入 QSettings）。
