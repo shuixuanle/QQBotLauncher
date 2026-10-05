@@ -174,8 +174,11 @@ def main() -> int:
     menu_text = ast.get_source_segment(src, menu_src) or "" if menu_src else ""
     for action in ("action_start_bot", "action_stop_bot", "action_restart_bot"):
         check("  下拉菜单里有 {}".format(action), action in menu_text)
-    check("  复用的是同一批 QAction（不是新建按钮）",
-          "QPushButton(" not in bb_src)
+    #  两个下拉按钮有意用 QPushButton（QToolButton 带菜单时 Qt 会自己画一个小箭头，
+    #  真机反馈过三次"多余的勾"）；但它们仍然**复用既有 QAction**，不重复定义动作。
+    check("  按钮挂在既有 QAction 上（没有重复定义动作）",
+          "self.action_start_all.trigger" in bb_src
+          and 'QAction("启动全部"' not in bb_src)
     check("  存在 action_open_all_windows 动作定义",
           "self.action_open_all_windows = QAction(" in src)
     check("  它接到 open_all_windows", "open_all_windows)" in src)

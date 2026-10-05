@@ -83,7 +83,6 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
-    QToolButton,
 )
 
 # 允许 "python app/ui/main_window.py" 直接运行自检
@@ -1007,14 +1006,9 @@ class MainWindow(QMainWindow):
         #   ③ 管理：新建 · 编辑当前 Bot · 打开配置文件
         # 「当前 Bot ▾」：把 启动/停止/重启当前 Bot 三个按钮合并成一个下拉，
         # 菜单里还有"对当前程序"的三个操作（见 build_current_bot_menu）
-        self.current_bot_button = QToolButton(bar)
-        self.current_bot_button.setText("当前 Bot  ▾")
-        self.current_bot_button.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.current_bot_button = QPushButton("当前 Bot  ▾", bar)
         self.current_bot_button.setToolTip(
             "对当前 Bot / 当前程序：启动 · 停止 · 重启（快捷键 F5 / Shift+F5 / Ctrl+R）")
-        self.current_bot_button.setPopupMode(
-            QToolButton.ToolButtonPopupMode.InstantPopup)
         self.current_bot_button.clicked.connect(self._on_current_bot_button)
         bar.addWidget(self.current_bot_button)
         bar.addSeparator()
@@ -1026,31 +1020,20 @@ class MainWindow(QMainWindow):
         bar.addAction(self.action_open_config)
         bar.addSeparator()
         # 全局动作放最后（用得最少，且影响面最大）
-        # 「启动全部」+ 紧跟一个独立的小箭头按钮（不是 MenuButtonPopup 分裂按钮）。
-        # 为什么分开（真机事故 2026-10-05）：菜单关掉的那一下会**穿透**到按钮上，
-        # 分裂按钮的默认动作就是"启动全部"，用户看到的就成了"我只是勾了一下，
-        # 结果程序被启动了"。改成两个控件后，穿透最多把菜单再打开一次，不会有副作用。
-        self.start_all_button = QToolButton(bar)
-        self.start_all_button.setDefaultAction(self.action_start_all)
-        self.start_all_button.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        # 「启动全部」+ 紧跟一个独立的小箭头按钮。
+        # 两个都用**普通 QPushButton**（跟窗格标题栏上的「布局 ▾」同一套做法）：
+        # QToolButton 只要带菜单，Qt 就会自己在按钮里画一个 menu-indicator（小箭头），
+        # 关掉它又得写样式表；普通按钮根本不会画 —— 真机反馈了三次"多余的勾/箭头"，
+        # 这里从根上避免。穿透问题也不再有副作用：菜单关掉那一下最多把菜单再打开。
+        self.start_all_button = QPushButton("启动全部", bar)
         self.start_all_button.setToolTip("一键启动所有启用的机器人")
+        self.start_all_button.clicked.connect(self.action_start_all.trigger)
         bar.addWidget(self.start_all_button)
 
-        self.start_pick_button = QToolButton(bar)
-        # 箭头由**我们自己写**，并关掉 Qt 自带的 menu-indicator。
-        # 真机反馈（2026-10-05）：之前留空文字、指望 Qt 画箭头，结果按钮上一个、
-        # 展开菜单时又在「启动全部」那侧多出一个（看着像两个莫名的勾）。
-        # 现在只留一个我们控制的箭头，两种状态下位置都一样。
-        self.start_pick_button.setText("▾")
-        self.start_pick_button.setStyleSheet(
-            "QToolButton::menu-indicator { image: none; width: 0px; }")
-        self.start_pick_button.setPopupMode(
-            QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.start_pick_button.setMenu(self.build_start_selection_menu())
-        self.start_pick_button.menu().aboutToShow.connect(
-            self._refresh_start_selection_menu)
+        self.start_pick_button = QPushButton("▾", bar)
+        self.start_pick_button.setFixedWidth(28)
         self.start_pick_button.setToolTip("勾选这次要启动哪些程序（只启动勾上的）")
+        self.start_pick_button.clicked.connect(self._on_start_pick_button)
         bar.addWidget(self.start_pick_button)
         bar.addAction(self.action_stop_all)
         # 始终可用：它就是"那一排操作按钮"，折叠左栏后更离不开它
@@ -4453,15 +4436,21 @@ class MainWindow(QMainWindow):
         menu.startRequested.connect(self._on_tab_start_requested)
         return menu
 
-    def _refresh_start_selection_menu(self) -> None:
-        """每次展开前重建勾选菜单：默认勾选状态要跟着"当前是哪个机器人"走。"""
-        button = getattr(self, "start_all_button", None)
+    def _on_start_pick_button(self) -> None:
+        """「启动全部」右边的 ▾：弹出勾选菜单（每次现建，默认勾选跟着当前机器人走）。
+
+        和窗格标题栏的「布局 ▾」一样手动 exec —— 不用 QToolButton.setMenu()，
+        因为那样 Qt 会自己在按钮里画一个小箭头（真机反馈过三次"多余的勾"）。
+        """
+        button = getattr(self, "start_pick_button", None)
         if button is None:
             return
         try:
-            button.setMenu(self.build_start_selection_menu())
-        except (RuntimeError, AttributeError, TypeError):
-            pass
+            menu = self.build_start_selection_menu()
+        except (RuntimeError, AttributeError, TypeError) as exc:
+            self.statusBar().showMessage("启动选择菜单打不开：{}".format(exc), 8000)
+            return
+        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
 
     def _on_start_menu_requested(self, bot_id: str = "", global_pos=None) -> None:
         """弹出「启动全部 ▾」的勾选菜单（默认只勾当前机器人）。"""

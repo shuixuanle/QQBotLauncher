@@ -189,6 +189,7 @@ def main() -> int:
 
     print("\n[4] 接线：入口都在**顶部工具栏**，启动路径只有一条")
     window_methods = methods(window_src, "MainWindow")
+    s_pick_hint = window_methods.get("_on_start_pick_button", "")
     check("MainWindow 有 build_current_bot_menu（当前 Bot / 当前程序 两组）",
           "build_current_bot_menu" in window_methods)
     merged = window_methods.get("build_current_bot_menu", "")
@@ -205,11 +206,11 @@ def main() -> int:
     check("没有窗口/程序时动作会置灰", "setEnabled(bool(key))" in merged
           and "setEnabled(bot is not None)" in merged)
     check("顶部工具栏有「当前 Bot」下拉按钮",
-          "self.current_bot_button = QToolButton(bar)" in window_src
+          'self.current_bot_button = QPushButton("当前 Bot' in window_src
           and "self.current_bot_button.clicked.connect(self._on_current_bot_button)"
           in window_src)
-    check("下拉按钮是 InstantPopup（点一下就弹菜单）",
-          "InstantPopup" in window_src)
+    check("点一下就弹菜单（手动 exec，不靠 InstantPopup）",
+          "self.build_current_bot_menu().exec(" in window_src)
     check("原来的三个按钮**不再**单独占工具栏位",
           "bar.addAction(self.action_start_bot)" not in window_src
           and "bar.addAction(self.action_stop_bot)" not in window_src
@@ -222,25 +223,34 @@ def main() -> int:
     #  "穿透"点击，默认动作 = 启动全部 —— 用户只勾了一下，程序却起来了。
     #  所以改成「启动全部」按钮 + 紧跟一个独立的小箭头按钮。
     check("顶部「启动全部」按钮仍在（一键全启动）",
-          "self.start_all_button = QToolButton(bar)" in window_src
-          and "setDefaultAction(self.action_start_all)" in window_src)
+          'self.start_all_button = QPushButton("启动全部"' in window_src
+          and "self.action_start_all.trigger" in window_src)
     check("**不用** MenuButtonPopup 分裂按钮（会被穿透点击）",
           not uses_attribute(window_src, "MenuButtonPopup"))
-    check("旁边是独立的小箭头按钮，挂勾选菜单",
-          "self.start_pick_button.setMenu(self.build_start_selection_menu())"
-          in window_src)
+    check("旁边是独立的小箭头按钮，点开弹勾选菜单",
+          "self.start_pick_button.clicked.connect(self._on_start_pick_button)"
+          in window_src
+          and "self.build_start_selection_menu()" in s_pick_hint)
     #  真机三次反馈：箭头要么两个、要么展开时多冒一个 —— 现在只留**一个我们画的**：
     #  自己写 "▾"，并把 Qt 自带的 menu-indicator 关掉。
     check("小箭头按钮自己写箭头（只留一个，我们自己控制位置）",
-          'self.start_pick_button.setText("' in window_src
+          'self.start_pick_button = QPushButton("' in window_src
           and "\u25be" in window_src)
-    check("关掉 Qt 自带的 menu-indicator（否则展开时又多一个）",
-          "QToolButton::menu-indicator { image: none;" in window_src)
-    check("小箭头是 InstantPopup（点一下就弹菜单）",
-          "InstantPopup" in window_src)
-    check("菜单每次展开前重建",
-          "self.start_pick_button.menu().aboutToShow.connect(" in window_src
-          and "self._refresh_start_selection_menu)" in window_src)
+    #  根治方案：这两个按钮**不是 QToolButton、也不 setMenu** ——
+    #  Qt 只有在 QToolButton 带菜单时才画那个 menu-indicator（真机那三个"多余的勾"）。
+    check("两个按钮都不是 QToolButton（Qt 才不会画 menu-indicator）",
+          "self.start_all_button = QToolButton" not in window_src
+          and "self.start_pick_button = QToolButton" not in window_src
+          and "self.current_bot_button = QToolButton" not in window_src)
+    check("不给按钮 setMenu（改成手动 exec）",
+          "start_pick_button.setMenu(" not in window_src
+          and "current_bot_button.setMenu(" not in window_src)
+    check("点一下就弹菜单（手动 exec，和「布局」按钮同一套做法）",
+          "menu.exec(button.mapToGlobal(button.rect().bottomLeft()))" in
+          methods(window_src, "MainWindow").get("_on_start_pick_button", ""))
+    check("菜单每次点开时现建（默认勾选跟着当前机器人走）",
+          "menu = self.build_start_selection_menu()" in s_pick_hint
+          and "menu.exec(button.mapToGlobal(" in s_pick_hint)
     check("勾选菜单复用 _on_tab_start_requested（启动路径只有一条）",
           "menu.startRequested.connect(self._on_tab_start_requested)" in window_src)
     check("菜单按当前机器人预勾选", "focus_on" in window_src
