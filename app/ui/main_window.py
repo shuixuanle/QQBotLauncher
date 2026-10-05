@@ -1038,9 +1038,13 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.start_all_button)
 
         self.start_pick_button = QToolButton(bar)
-        # 文字留空：InstantPopup 自己会在按钮右下画一个菜单箭头 ——
-        # 再写一个 "▾" 就成了两个箭头（真机截图里那两个"√"就是这个）
-        self.start_pick_button.setText("")
+        # 箭头由**我们自己写**，并关掉 Qt 自带的 menu-indicator。
+        # 真机反馈（2026-10-05）：之前留空文字、指望 Qt 画箭头，结果按钮上一个、
+        # 展开菜单时又在「启动全部」那侧多出一个（看着像两个莫名的勾）。
+        # 现在只留一个我们控制的箭头，两种状态下位置都一样。
+        self.start_pick_button.setText("▾")
+        self.start_pick_button.setStyleSheet(
+            "QToolButton::menu-indicator { image: none; width: 0px; }")
         self.start_pick_button.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup)
         self.start_pick_button.setMenu(self.build_start_selection_menu())

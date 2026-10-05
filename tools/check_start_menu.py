@@ -229,10 +229,13 @@ def main() -> int:
     check("旁边是独立的小箭头按钮，挂勾选菜单",
           "self.start_pick_button.setMenu(self.build_start_selection_menu())"
           in window_src)
-    #  InstantPopup 自己会画箭头；再写 "▾" 就成两个箭头（真机截图里那两个"√"）
-    check("小箭头按钮不再自己写箭头字符（避免两个箭头）",
-          'setText("\\u25be")' not in window_src
-          and 'self.start_pick_button.setText("")' in window_src)
+    #  真机三次反馈：箭头要么两个、要么展开时多冒一个 —— 现在只留**一个我们画的**：
+    #  自己写 "▾"，并把 Qt 自带的 menu-indicator 关掉。
+    check("小箭头按钮自己写箭头（只留一个，我们自己控制位置）",
+          'self.start_pick_button.setText("' in window_src
+          and "\u25be" in window_src)
+    check("关掉 Qt 自带的 menu-indicator（否则展开时又多一个）",
+          "QToolButton::menu-indicator { image: none;" in window_src)
     check("小箭头是 InstantPopup（点一下就弹菜单）",
           "InstantPopup" in window_src)
     check("菜单每次展开前重建",
