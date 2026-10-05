@@ -983,9 +983,31 @@ class BotTab(QWidget):
             return []
         return sizes
 
+    @staticmethod
+    def _is_dragging(splitter: QSplitter) -> bool:
+        """这个 splitter 的分隔条正被用户按住拖吗？
+
+        真机 2026-10-05："只有在出现左右分开的窗口的时候，左侧栏拖动时崩溃"，
+        而且没有任何 Python traceback（硬崩在 Qt 内部）。已知的雷区之一就是
+        **用户按住分隔条拖动时**程序再去调 `setSizes()` —— 此时 QSplitterHandle
+        正握着鼠标、内部状态正在更新，再改尺寸属于未定义行为。
+        拿不准就当成"正在拖"，宁可不设置（下一次布局稳定时会再套一次）。
+        """
+        try:
+            for index in range(1, splitter.count()):
+                handle = splitter.handle(index)
+                if handle is not None and handle.isSliderDown():
+                    return True
+        except (RuntimeError, AttributeError, TypeError):
+            return True
+        return False
+
     def _set_splitter_sizes(self, splitter: QSplitter, sizes: List[int]) -> None:
         """设置 splitter 尺寸；界面尺寸与保存值不同时按比例换算。"""
         if len(sizes) != splitter.count() or sum(sizes) <= 0:
+            return
+        if self._is_dragging(splitter):
+            # 拖动进行中：绝不在此时改尺寸（Qt 内部状态不一致，会硬崩）
             return
         current = self._splitter_sizes(splitter)
         if current:
