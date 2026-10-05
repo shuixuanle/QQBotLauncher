@@ -355,6 +355,38 @@ class PaneWidget(QWidget):
         self.clear_button.setToolTip("清空该窗格里的日志显示")
         self.clear_button.clicked.connect(self.clear_log)
 
+        # ---- 缩略模式（真机 2026-10-05 用户设计）----
+        # 现象：左右分屏时，**两个**窗格的标题行都要"显示全"，于是和左侧栏抢宽度：
+        # 主分隔条给不了左栏 → 布局互相顶 → Qt 在重排里递归 → 硬崩（没有 traceback）。
+        # 上下分屏/单个窗格时标题行有整窗宽度可用，所以不崩。
+        #
+        # 规则（用户要求）：
+        #   · 宽度够 → 四个按钮照旧；
+        #   · 宽度不够 → 文字优先，四个按钮**合并成一个「操作 ▾」下拉**；
+        #   · 一个字都放不下时，标题自己省略成 "前半…"，鼠标移上去用 tooltip 看全。
+        # 关键：只在**跨过阈值的那一次**改可见性（状态没变就返回），否则
+        # "改可见性 → 触发重排 → 又改可见性"会变成新的死循环。
+        self.actions_button = QPushButton("操作 \u25be", bar)
+        self.actions_button.setToolTip(
+            "本窗格当前程序的：启动 · 停止 · 重启 · 清空日志")
+        self._actions_menu = QMenu(self.actions_button)
+        for text, tip, key in (
+            ("启动", "只启动本窗格当前显示的这个程序", "start"),
+            ("停止", "只停止本窗格当前显示的这个程序", "stop"),
+            ("重启", "只重启本窗格当前显示的这个程序", "restart"),
+        ):
+            action = QAction(text, self._actions_menu)
+            action.setToolTip(tip)
+            action.triggered.connect(
+                lambda _checked=False, k=key: self._emit_action(k))
+            self._actions_menu.addAction(action)
+        clear_action = QAction("清空日志", self._actions_menu)
+        clear_action.triggered.connect(self.clear_log)
+        self._actions_menu.addAction(clear_action)
+        self.actions_button.setMenu(self._actions_menu)
+        self.actions_button.setMaximumHeight(22)
+        self.actions_button.setVisible(False)      # 默认宽度够，先不显示
+
         row.addWidget(self.title_label)
         row.addWidget(self.status_label)
         row.addWidget(self.pid_label)
@@ -363,8 +395,48 @@ class PaneWidget(QWidget):
         for button in (self.start_button, self.stop_button, self.restart_button,
                        self.clear_button):
             button.setMaximumHeight(22)
+            # 允许被压窄：按钮不许把窗格的最小宽度顶起来（那是"抢宽度"的根源）
+            button.setMinimumWidth(0)
             row.addWidget(button)
+        row.addWidget(self.actions_button)
+        # 标题/状态等文字：宽度随布局，放不下就省略（鼠标移上去有完整 tooltip）
+        for label in (self.title_label, self.status_label, self.pid_label,
+                      self.count_label):
+            label.setMinimumWidth(0)
+            label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                QSizePolicy.Policy.Preferred)
+        self._compact = False
         return bar
+
+    #: 窗格窄于这个宽度就切到缩略模式（四个按钮合并成「操作 ▾」）
+    COMPACT_WIDTH = 430
+    #: 收窄/放宽用两个阈值，避免在边界上反复横跳
+    COMPACT_BACK_WIDTH = 470
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        """窗格大小变化：按宽度切换缩略模式（只在跨阈值时动一次）。"""
+        super().resizeEvent(event)
+        try:
+            self._update_compact_mode(event.size().width())
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+
+    def _update_compact_mode(self, width: int) -> None:
+        """宽度不够就收起四个按钮、只留「操作 ▾」（状态没变就直接返回）。"""
+        if not hasattr(self, "actions_button"):
+            return
+        if width <= 0:
+            return
+        if not self._compact and width < self.COMPACT_WIDTH:
+            self._compact = True
+        elif self._compact and width > self.COMPACT_BACK_WIDTH:
+            self._compact = False
+        else:
+            return                                    # 状态没变：什么都不做（防止循环）
+        for button in (self.start_button, self.stop_button, self.restart_button,
+                       self.clear_button):
+            button.setVisible(not self._compact)
+        self.actions_button.setVisible(self._compact)
 
     def _build_tabs(self, outer: QVBoxLayout) -> None:
         """多程序：底部标签页承载各自的日志视图。"""
