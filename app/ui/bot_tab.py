@@ -668,9 +668,6 @@ class BotTab(QWidget):
     """一个机器人的实例区：按布局树渲染窗格，集中显示所有程序的 cmd / 终端输出。"""
 
     startRequested = pyqtSignal(list)
-    #: 「启动全部 ▾」被点击（参数：本机器人 id + 全局坐标）——
-    #: 菜单内容要列出所有机器人，而 Tab 只知道自己那一个，所以交给主窗口弹
-    startMenuRequested = pyqtSignal(str, object)
     stopRequested = pyqtSignal(list)
     restartRequested = pyqtSignal(list)
     programActionRequested = pyqtSignal(str, str)
@@ -1033,14 +1030,6 @@ class BotTab(QWidget):
         self.start_button.setToolTip("启动该机器人下的所有程序")
         self.start_button.clicked.connect(self._on_start_all)
 
-        # 「启动全部 ▾」：挑一部分程序启动（树形勾选，见 app/ui/start_menu.py）。
-        # 单独一个小按钮而不是把 start_button 改成菜单：一键启动全部是最常用的操作，
-        # 不该为了挑程序而多点一次。
-        self.start_menu_button = QPushButton("▾", bar)
-        self.start_menu_button.setToolTip("选择要启动的程序…（可只启动其中几个）")
-        self.start_menu_button.setFixedWidth(28)
-        self.start_menu_button.clicked.connect(self._on_start_menu_button)
-
         self.stop_button = QPushButton("停止全部", bar)
         self.stop_button.setToolTip("停止该机器人下的所有程序（含进程树）")
         self.stop_button.clicked.connect(self._on_stop_all)
@@ -1066,7 +1055,6 @@ class BotTab(QWidget):
         row.addWidget(title)
         row.addSpacing(8)
         row.addWidget(self.start_button)
-        row.addWidget(self.start_menu_button)
         row.addWidget(self.stop_button)
         row.addWidget(self.restart_button)
         row.addWidget(self.edit_button)
@@ -1559,18 +1547,6 @@ class BotTab(QWidget):
         keys = self.all_keys()
         if keys:
             self.startRequested.emit(keys)
-
-    def _on_start_menu_button(self) -> None:
-        """控制条上的「启动全部 ▾」：弹出"选择启动的程序"（树形勾选）。
-
-        菜单要列出**所有**机器人（和左侧栏一样），而这里只拿得到自己那一个，
-        所以把坐标交给主窗口去弹（见 MainWindow._on_start_menu_requested）。
-        """
-        button = getattr(self, "start_menu_button", None)
-        if button is None:
-            return
-        self.startMenuRequested.emit(
-            self.bot.id, button.mapToGlobal(button.rect().bottomLeft()))
 
     def _on_stop_all(self) -> None:
         keys = [key for key in self.all_keys() if self._is_running(key)]

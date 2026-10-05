@@ -161,11 +161,19 @@ def main() -> int:
     check("  默认可见（唯一一条工具条，不随左栏显隐）",
           "setVisible(True)" in bb_src)
     check("  文字按钮（与主工具栏一致）", "ToolButtonTextOnly" in bb_src)
-    for action in ("action_new_bot", "action_edit_bot", "action_start_bot",
-                   "action_stop_bot", "action_restart_bot",
+    # 「启动/停止/重启当前 Bot」三个动作 2026-10-05 起合并进「当前 Bot」下拉，
+    # 不再逐个 addAction；这里改成：菜单里必须挂上它们（而不是从工具栏消失）。
+    for action in ("action_new_bot", "action_edit_bot",
                    "action_open_all_windows", "action_bot_list",
                    "action_open_config"):
         check("  挂了 {}".format(action), action in bb_src)
+    # 下拉按钮与那个合并菜单
+    check("  「当前 Bot」下拉按钮在工具栏里",
+          "current_bot_button" in bb_src)
+    menu_src = methods.get("build_current_bot_menu")
+    menu_text = ast.get_source_segment(src, menu_src) or "" if menu_src else ""
+    for action in ("action_start_bot", "action_stop_bot", "action_restart_bot"):
+        check("  下拉菜单里有 {}".format(action), action in menu_text)
     check("  复用的是同一批 QAction（不是新建按钮）",
           "QPushButton(" not in bb_src)
     check("  存在 action_open_all_windows 动作定义",
@@ -203,18 +211,31 @@ def main() -> int:
           not main_actions, "实际 {}".format(main_actions))
     check("  _build_toolbar 里调用 _build_bot_bar 并复用 self.toolbar",
           "_build_bot_bar()" in mb_src and "self.toolbar = self.bot_bar" in mb_src)
-    check("  只保留一行：动作齐全（机器人 + 窗口 + 全局）",
-          {"action_start_bot", "action_stop_bot", "action_restart_bot",
-           "action_open_all_windows", "action_bot_list", "action_new_bot",
-           "action_edit_bot", "action_open_config",
-           "action_start_all", "action_stop_all"} <= set(bot_actions),
+    # 2026-10-05 起：工具栏把「启动/停止/重启当前 Bot」合并成一个「当前 Bot」下拉，
+    # 「启动全部」也变成带勾选菜单的分裂按钮 —— 所以这两组不再以 addAction 出现，
+    # 改成以 QToolButton 控件出现。这里按"能力齐全"来判断，而不是死盯调用形式。
+    widgets = [line.strip() for line in bb_src.splitlines()
+               if "bar.addWidget(" in line]
+    merged = {
+        "action_open_all_windows", "action_bot_list", "action_new_bot",
+        "action_edit_bot", "action_open_config", "action_stop_all",
+    } <= set(bot_actions)
+    check("  只保留一行：动作齐全（窗口 + 配置 + 全局停止）", merged,
           "实际 {}".format(bot_actions))
+    check("  「当前 Bot」下拉在工具栏里（启动/停止/重启合并成一处）",
+          any("current_bot_button" in line for line in widgets),
+          "实际 {}".format(widgets))
+    check("  「启动全部」分裂按钮在工具栏里（点文字仍是一键全启动）",
+          any("start_all_button" in line for line in widgets),
+          "实际 {}".format(widgets))
     check("  没有重复动作（同一动作只挂一次）",
           len(bot_actions) == len(set(bot_actions)),
           "重复：{}".format(sorted(
               a for a in set(bot_actions) if bot_actions.count(a) > 1)))
+    # 「启动全部」现在是带勾选菜单的分裂按钮（控件），工具栏里最后一个"全局"动作
+    # 就只剩「停止全部」—— 判断"它排在最后"即可
     check("  全局动作排在最后（用得最少、影响面最大）",
-          bot_actions[-2:] == ["action_start_all", "action_stop_all"],
+          bot_actions[-1:] == ["action_stop_all"],
           "尾部：{}".format(bot_actions[-3:]))
     vis_fn2 = methods.get("_update_bot_tab_bar_visible")
     vis_src2 = ast.get_source_segment(src, vis_fn2) or "" if vis_fn2 else ""

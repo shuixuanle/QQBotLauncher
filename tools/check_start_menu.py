@@ -102,20 +102,50 @@ def main() -> int:
     check("勾选列表只收启用中的程序", "program.enabled" in menu_src)
     check("主程序排最前（与界面一致）", "ROLE_PRIMARY" in menu_src)
 
-    print("\n[4] 接线：启动路径只有一条")
-    check("BotTab 有 startMenuRequested 信号",
-          "startMenuRequested = pyqtSignal(str, object)" in tab_src)
-    check("BotTab 有下拉小按钮", 'start_menu_button = QPushButton("▾"' in tab_src)
-    check("下拉按钮接上 _on_start_menu_button", "_on_start_menu_button" in tab_src)
-    check("点击时带出全局坐标（菜单贴着按钮弹）",
-          "mapToGlobal" in tab_src and "startMenuRequested.emit" in tab_src)
-    check("MainWindow 接了 startMenuRequested",
-          "tab.startMenuRequested.connect(self._on_start_menu_requested)" in window_src)
-    handler = methods(window_src, "MainWindow").get("_on_start_menu_requested", "")
-    check("弹菜单的槽存在", bool(handler))
-    check("菜单的 startRequested 复用 _on_tab_start_requested（没写第二份启动逻辑）",
-          "menu.startRequested.connect(self._on_tab_start_requested)" in handler)
-    check("弹菜单前先 focus_on(当前机器人)", "focus_on(bot_id)" in handler)
+    print("\n[4] 接线：入口都在**顶部工具栏**，启动路径只有一条")
+    window_methods = methods(window_src, "MainWindow")
+    check("MainWindow 有 build_current_bot_menu（当前 Bot / 当前程序 两组）",
+          "build_current_bot_menu" in window_methods)
+    merged = window_methods.get("build_current_bot_menu", "")
+    check("合并菜单里同时有「对当前 Bot」与「对当前程序」两组",
+          "对当前 Bot" in merged and "对当前程序" in merged)
+    check("当前程序那三个操作复用 _on_tab_program_action（没写第二份）",
+          merged.count("self._on_tab_program_action") == 1
+          and "for label, name in" in merged)
+    check("两组各三个动作（启动/停止/重启）",
+          merged.count('("启动", "start")') == 1 and "self.action_start_bot" in merged
+          and "self.action_stop_bot" in merged and "self.action_restart_bot" in merged)
+    check("标题带当前机器人名 / 当前程序名",
+          "对当前 Bot：" in merged and "对当前程序：" in merged)
+    check("没有窗口/程序时动作会置灰", "setEnabled(bool(key))" in merged
+          and "setEnabled(bot is not None)" in merged)
+    check("顶部工具栏有「当前 Bot」下拉按钮",
+          "self.current_bot_button = QToolButton(bar)" in window_src
+          and "self.current_bot_button.clicked.connect(self._on_current_bot_button)"
+          in window_src)
+    check("下拉按钮是 InstantPopup（点一下就弹菜单）",
+          "InstantPopup" in window_src)
+    check("原来的三个按钮**不再**单独占工具栏位",
+          "bar.addAction(self.action_start_bot)" not in window_src
+          and "bar.addAction(self.action_stop_bot)" not in window_src
+          and "bar.addAction(self.action_restart_bot)" not in window_src)
+    check("三个 QAction 仍然存在（快捷键与机器人菜单还指着它们）",
+          'self.action_start_bot = QAction("启动当前 Bot"' in window_src
+          and "bot_menu.addAction(self.action_start_bot)" in window_src)
+
+    check("顶部「启动全部」是分裂按钮（点文字=全启动，点箭头=挑着启动）",
+          "self.start_all_button = QToolButton(bar)" in window_src
+          and "MenuButtonPopup" in window_src
+          and "setDefaultAction(self.action_start_all)" in window_src)
+    check("分裂按钮挂的是勾选菜单，并且每次展开前重建",
+          "self.start_all_button.setMenu(self.build_start_selection_menu())" in window_src
+          and "aboutToShow.connect(self._refresh_start_selection_menu)" in window_src)
+    check("勾选菜单复用 _on_tab_start_requested（启动路径只有一条）",
+          "menu.startRequested.connect(self._on_tab_start_requested)" in window_src)
+    check("菜单按当前机器人预勾选", "focus_on" in window_src
+          or "current_bot_id=self._current_bot_id()" in window_src)
+    check("窗格标题栏上不再有第二个入口（入口只有一处）",
+          "startMenuRequested" not in tab_src and "start_menu_button" not in tab_src)
 
     print("\n[5] 原行为不变：「启动全部」仍然一键启动全部")
     check("_on_start_all 还在", "_on_start_all" in methods(tab_src, "BotTab"))

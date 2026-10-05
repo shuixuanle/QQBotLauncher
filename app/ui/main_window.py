@@ -83,6 +83,7 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
+    QToolButton,
 )
 
 # 允许 "python app/ui/main_window.py" 直接运行自检
@@ -973,10 +974,10 @@ class MainWindow(QMainWindow):
 
         于是现在只有一条工具条，顺序按"用得多 → 全局"排：
 
-            启动当前 Bot · 停止当前 Bot · 重启当前 Bot
+            「当前 Bot ▾」（下拉：对当前 Bot / 对当前程序 各三个操作）
             ▏打开全部窗口 · 查看已有 bot…（=按需挑一个打开）
             ▏新建 Bot · 编辑当前 Bot · 打开配置文件
-            ▏启动全部 · 停止全部
+            ▏「启动全部 ▾」· 停止全部
 
         保留 ``self.toolbar`` 指向同一条，避免外部引用失效。
         """
@@ -991,7 +992,7 @@ class MainWindow(QMainWindow):
         这里复用**同一批 QAction**（QAction 可以被多处引用，不会出现两份状态，
         菜单/快捷键/禁用态自动同步），顺序按"用得多 → 全局"排：
             启动 / 停止 / 重启 ▏打开全部窗口 / 查看已有 bot…（=自定义打开）
-            ▏新建 / 编辑 / 打开配置文件 ▏启动全部 / 停止全部
+            ▏新建 / 编辑 / 打开配置文件 ▏「启动全部 ▾」/ 停止全部
 
         它**始终可见**（见 ``_update_bot_tab_bar_visible``）；浏览器式窗口标签栏
         按"是否有窗口可切"显示。
@@ -1004,9 +1005,18 @@ class MainWindow(QMainWindow):
         #   ① 常用操作：启动 / 停止 / 重启当前 Bot
         #   ② 窗口：打开全部窗口 · 查看已有 bot…（=按需挑一个打开）
         #   ③ 管理：新建 · 编辑当前 Bot · 打开配置文件
-        bar.addAction(self.action_start_bot)
-        bar.addAction(self.action_stop_bot)
-        bar.addAction(self.action_restart_bot)
+        # 「当前 Bot ▾」：把 启动/停止/重启当前 Bot 三个按钮合并成一个下拉，
+        # 菜单里还有"对当前程序"的三个操作（见 build_current_bot_menu）
+        self.current_bot_button = QToolButton(bar)
+        self.current_bot_button.setText("当前 Bot  ▾")
+        self.current_bot_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.current_bot_button.setToolTip(
+            "对当前 Bot / 当前程序：启动 · 停止 · 重启（快捷键 F5 / Shift+F5 / Ctrl+R）")
+        self.current_bot_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.current_bot_button.clicked.connect(self._on_current_bot_button)
+        bar.addWidget(self.current_bot_button)
         bar.addSeparator()
         bar.addAction(self.action_open_all_windows)
         bar.addAction(self.action_bot_list)
@@ -1016,7 +1026,18 @@ class MainWindow(QMainWindow):
         bar.addAction(self.action_open_config)
         bar.addSeparator()
         # 全局动作放最后（用得最少，且影响面最大）
-        bar.addAction(self.action_start_all)
+        # 「启动全部 ▾」：点文字 = 一键全启动（老行为），点右边小箭头 = 挑着启动
+        self.start_all_button = QToolButton(bar)
+        self.start_all_button.setDefaultAction(self.action_start_all)
+        self.start_all_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.start_all_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.start_all_button.setMenu(self.build_start_selection_menu())
+        self.start_all_button.menu().aboutToShow.connect(self._refresh_start_selection_menu)
+        self.start_all_button.setToolTip(
+            "点文字 = 启动全部；点右边小箭头 = 勾选这次要启动哪些程序")
+        bar.addWidget(self.start_all_button)
         bar.addAction(self.action_stop_all)
         # 始终可用：它就是"那一排操作按钮"，折叠左栏后更离不开它
         bar.setVisible(True)
@@ -3777,7 +3798,6 @@ class MainWindow(QMainWindow):
         except AttributeError:
             pass
         tab.startRequested.connect(self._on_tab_start_requested)
-        tab.startMenuRequested.connect(self._on_start_menu_requested)
         tab.stopRequested.connect(self._on_tab_stop_requested)
         tab.restartRequested.connect(self._on_tab_restart_requested)
         tab.editRequested.connect(self.edit_bot)
@@ -4357,30 +4377,91 @@ class MainWindow(QMainWindow):
         self.refresh_status()
         return len(running)
 
-    def _on_start_menu_requested(self, bot_id: str, global_pos) -> None:
-        """「启动全部 ▾」：弹出树形勾选菜单，只启动勾选的程序。
+    def build_current_bot_menu(self) -> QMenu:
+        """「当前 Bot ▾」菜单：对当前机器人 / 对当前程序 的两组操作。
 
-        菜单列出**所有**机器人（和左侧栏同一套层级），当前机器人标成"（当前）"、
-        默认勾选它下面的程序 —— 所以从某个窗口点开时，默认行为仍然是"启动这个机器人"。
-        勾了别的机器人也一样能启动（等于一个"挑着启动"的入口）。
+        真机需求（2026-10-05）：把顶部那三个按钮（启动/停止/重启当前 Bot）**合并成一个下拉**，
+        下拉里既有"对当前 Bot 实例"的三个操作，也有"对当前程序"的三个操作。
+        所以菜单每次展开时重建（标题要显示当前机器人名与当前程序名，能不能点也要现算）。
 
-        选完复用 `_on_tab_start_requested`：启动路径只有一条，别写第二份。
+        复用已有的 QAction（`action_start_bot` 等）：快捷键、机器人菜单里的入口
+        都还指着它们，行为只有一份。
         """
-        try:
-            from app.ui.start_menu import StartSelectionMenu
-        except ImportError as exc:                      # pragma: no cover - 理论到不了
-            self.statusBar().showMessage("启动选择菜单打不开：{}".format(exc), 8000)
-            return
+        menu = QMenu(self)
+        tab = self.current_tab()
+        bot = self.config.get_bot(tab.bot_id) if tab is not None else None
 
+        head = QAction("对当前 Bot：{}".format(bot.name if bot is not None else "（没有打开的窗口）"),
+                       menu)
+        head.setEnabled(False)
+        menu.addAction(head)
+        for action in (self.action_start_bot, self.action_stop_bot, self.action_restart_bot):
+            action.setEnabled(bot is not None)
+            menu.addAction(action)
+
+        menu.addSeparator()
+        key = tab.focused_program() if tab is not None else ""
+        program = None
+        if key and bot is not None:
+            for item in getattr(bot, "programs", []):
+                if build_manager_key(bot.id, item.id) == key:
+                    program = item
+                    break
+        sub_head = QAction("对当前程序：{}".format(
+            program.name if program is not None else
+            ("（这个机器人只有一个程序时不显示窗格名）" if bot is not None else "（没有打开的窗口）")),
+            menu)
+        sub_head.setEnabled(False)
+        menu.addAction(sub_head)
+        for label, name in (("启动", "start"), ("停止", "stop"), ("重启", "restart")):
+            item = QAction(label, menu)
+            item.setEnabled(bool(key))
+            item.triggered.connect(
+                lambda _checked=False, k=key, a=name: self._on_tab_program_action(k, a))
+            menu.addAction(item)
+        return menu
+
+    def _on_current_bot_button(self) -> None:
+        """顶部「当前 Bot ▾」：弹出上面那份菜单。"""
+        button = getattr(self, "current_bot_button", None)
+        if button is None:
+            return
+        self.build_current_bot_menu().exec(
+            button.mapToGlobal(button.rect().bottomLeft()))
+
+    def build_start_selection_menu(self) -> "StartSelectionMenu":
+        """「启动全部 ▾」的树形勾选菜单（见 app/ui/start_menu.py）。"""
+        from app.ui.start_menu import StartSelectionMenu
+
+        bots = list(getattr(self.config, "bots", []) or [])
+        menu = StartSelectionMenu(bots, current_bot_id=self._current_bot_id() or "", parent=self)
+        # 选完复用 _on_tab_start_requested：启动路径只有一条，别写第二份
+        menu.startRequested.connect(self._on_tab_start_requested)
+        return menu
+
+    def _refresh_start_selection_menu(self) -> None:
+        """每次展开前重建勾选菜单：默认勾选状态要跟着"当前是哪个机器人"走。"""
+        button = getattr(self, "start_all_button", None)
+        if button is None:
+            return
+        try:
+            button.setMenu(self.build_start_selection_menu())
+        except (RuntimeError, AttributeError, TypeError):
+            pass
+
+    def _on_start_menu_requested(self, bot_id: str = "", global_pos=None) -> None:
+        """弹出「启动全部 ▾」的勾选菜单（默认只勾当前机器人）。"""
         bots = list(getattr(self.config, "bots", []) or [])
         if not bots:
             self.statusBar().showMessage("还没有配置任何机器人。", 6000)
             return
-
-        menu = StartSelectionMenu(bots, current_bot_id=bot_id, parent=self)
-        menu.startRequested.connect(self._on_tab_start_requested)
-        # 打开时：只勾"当前机器人"那棵子树，其它机器人默认不勾
-        menu.focus_on(bot_id)
+        menu = self.build_start_selection_menu()
+        if global_pos is None:
+            button = getattr(self, "start_all_button", None)
+            global_pos = (button.mapToGlobal(button.rect().bottomLeft())
+                          if button is not None else None)
+        if global_pos is None:
+            return
         menu.exec(global_pos)
 
     def _on_tab_start_requested(self, keys: List[str]) -> None:
