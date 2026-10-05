@@ -228,6 +228,21 @@ class BotLogView(ProgramWidget):
 # 窗格：一个程序（或若干程序的标签页）+ 标题栏 + 操作按钮
 # ---------------------------------------------------------------------------
 
+def _note_slot_error(where: str, exc: BaseException) -> None:
+    """槽里出错时留一行提示（不弹窗、不打断）。
+
+    为什么要有它：拖动分隔条这类高频槽必须兜底（异常冒出去 = PyQt6 终止进程），
+    但"悄悄吞掉"会让真因永远查不到。所以退化处理的同时往 stderr 写一行 ——
+    用 `python main.py --console` 或管理器自带的控制台就能看到。
+    """
+    try:
+        sys.stderr.write("[界面] {} 出错（已忽略，界面继续）：{}: {}\n".format(
+            where, type(exc).__name__, exc))
+        sys.stderr.flush()
+    except (AttributeError, ValueError, OSError):
+        pass
+
+
 class PaneWidget(QWidget):
     """一个窗格。
 
@@ -912,7 +927,8 @@ class BotTab(QWidget):
         """
         try:
             splitters = self._splitters()
-        except (RuntimeError, AttributeError, TypeError, ValueError):
+        except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+            _note_slot_error("统计窗格比例", exc)
             return
         for splitter in splitters:
             try:
@@ -932,14 +948,22 @@ class BotTab(QWidget):
         每一个程序调用 set_pane_sizes(旧比例) 时，不会再出现"1 分量比例把 3 个
         窗格平均分配"的副作用。
         """
-        for splitter in self._splitters():
-            path = self._path_of(splitter)
-            if not path:
+        try:
+            splitters = self._splitters()
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        for splitter in splitters:
+            try:
+                path = self._path_of(splitter)
+                if not path:
+                    continue
+                sizes = self._pane_sizes.get(path)
+                if not sizes or len(sizes) != splitter.count():
+                    continue
+                self._set_splitter_sizes(splitter, sizes)
+            except (RuntimeError, AttributeError, TypeError, ValueError):
+                # 拖动过程中窗格可能正在重建：跳过这一格，别让异常冒到 Qt 槽外
                 continue
-            sizes = self._pane_sizes.get(path)
-            if not sizes or len(sizes) != splitter.count():
-                continue
-            self._set_splitter_sizes(splitter, sizes)
 
     def _path_of(self, splitter: QSplitter) -> str:
         """取 splitter 对应的节点路径。"""
@@ -1298,7 +1322,8 @@ class BotTab(QWidget):
             # 也不能把管理器带走。
             try:
                 self._capture_pane_sizes()
-            except (RuntimeError, AttributeError, TypeError, ValueError):
+            except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+                _note_slot_error("拖动分隔条", exc)
                 return
             if self._split_debounce is not None:
                 self._split_debounce.start()
@@ -1316,7 +1341,8 @@ class BotTab(QWidget):
         """
         try:
             self._capture_pane_sizes()
-        except (RuntimeError, AttributeError, TypeError, ValueError):
+        except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+            _note_slot_error("分隔条拖动结束", exc)
             return
         if self._pane_sizes != self._last_split_snapshot:
             self._last_split_snapshot = {
@@ -1606,12 +1632,19 @@ class BotTab(QWidget):
     # ------------------------------------------------------------------
 
     def _on_layout_button(self) -> None:
-        """控制条上的「布局 ▾」：弹出模板菜单。"""
+        """控制条上的「布局 ▾」：弹出模板菜单。
+
+        构建菜单时会遍历当前窗格（可能正好在重建）—— 整个包在兜底里：
+        按钮的 clicked 是 Qt 槽，异常会让 PyQt6 终止进程。
+        """
         button = getattr(self, "layout_button", None)
         if button is None:
             return
-        menu = self.build_layout_menu(menu_parent=button)
-        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+        try:
+            menu = self.build_layout_menu(menu_parent=button)
+            menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
 
     def build_layout_menu(self, menu_parent: Optional[QWidget] = None) -> QMenu:
         """构造布局菜单（控制条按钮与左栏右键共用）。"""

@@ -748,8 +748,16 @@ class ProgramWidget(QWidget):
             self.open_dir_button.setToolTip("工作目录不存在或未配置")
 
     def _on_scrolled(self, _value: int) -> None:
-        """滚动条变化：贴底时恢复自动滚动跟随。"""
-        if self.is_at_bottom() and not self._auto_scroll:
+        """滚动条变化：贴底时恢复自动滚动跟随。
+
+        这是 valueChanged 槽，布局/拖动/换主题时会被高频触发 —— 里面若抛异常，
+        PyQt6 会直接终止进程（真机 2026-10-05 拖动时崩溃的候选点之一）。
+        """
+        try:
+            at_bottom = self.is_at_bottom()
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        if at_bottom and not self._auto_scroll:
             # 用户手动滚回底部，视为希望继续跟随
             self.auto_scroll_box.setChecked(True)
 

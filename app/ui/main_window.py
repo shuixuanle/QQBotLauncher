@@ -1133,7 +1133,19 @@ class MainWindow(QMainWindow):
         return self._current_bot_id() or self._nav_selected_bot_id() or ""
 
     def _rebuild_layout_menu(self) -> None:
-        """重建「视图 → 分屏布局」子菜单（勾选当前模板、标注目标机器人）。"""
+        """重建「视图 → 分屏布局」子菜单（aboutToShow 的槽）。
+
+        每次展开菜单都会跑，里面要问当前窗口的布局 —— 窗口可能正好在重建
+        （控件已 deleteLater）。异常不许冒出去：PyQt6 对槽里的未捕获异常会
+        直接终止进程。所以整段包在 _rebuild_layout_menu_impl() 里兜底。
+        """
+        try:
+            self._rebuild_layout_menu_impl()
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+
+    def _rebuild_layout_menu_impl(self) -> None:
+        """真正干活的版本（只由上面的槽调用）。"""
         menu = getattr(self, "layout_menu", None)
         if menu is None:
             return
