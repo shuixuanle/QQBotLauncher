@@ -105,8 +105,11 @@ def main() -> int:
     #  QLabel 默认拿"文字宽度"当最小宽度，所以这些标签必须设成 Ignored。
     tab_src = (ROOT / "app" / "ui" / "bot_tab.py").read_text(encoding="utf-8")
     widget_src = (ROOT / "app" / "ui" / "program_widget.py").read_text(encoding="utf-8")
-    check("  机器人名设成了 Ignored（宽随布局，不按文字宽度抢空间）",
-          "title.setSizePolicy(QSizePolicy.Policy.Ignored" in tab_src)
+    check("  机器人名手动省略（文字短了就不再抢宽度）",
+          "_apply_control_elide" in tab_src
+          and "elidedText(full, Qt.TextElideMode.ElideRight" in tab_src)
+    check("  名字变化时会重算（BotTab 有 resizeEvent 钩子）",
+          "def resizeEvent(self, event)" in tab_src)
     check("  窗格标题行的标签也设成了 Ignored",
           "for _label in (self.title_label, self.status_label, self.count_label):"
           in widget_src)
@@ -160,21 +163,29 @@ def main() -> int:
     _tab_start = tab_src.index("def _build_control_bar(")
     _tab_end = tab_src.index("\n    def ", _tab_start + 10)
     control_bar = tab_src[_tab_start:_tab_end]
-    check("  机器人名带 stretch=1（剩余空间归它）",
-          "row.addWidget(title, 1)" in control_bar)
-    check("  控制条里没有 addStretch 抢空间",
-          "row.addStretch(1)" not in control_bar)
-    check("  只有名字是 Ignored（说明与状态必须看得见）",
-          "title.setSizePolicy(QSizePolicy.Policy.Ignored" in control_bar
-          and "self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored"
-          not in control_bar)
-    #  真机要求（2026-10-06）："这一栏至少保证完全显示"
+    #  真机 2026-10-06："改变宽度时……我希望都是吸住左侧" —— 多余空间丢到最右边，
+    #  名字/按钮/说明/状态紧挨着靠左排。
+    check("  整排靠左：stretch 放在最后",
+          "row.addStretch(1)" in control_bar
+          and control_bar.index("row.addWidget(self.status_label)")
+          < control_bar.index("row.addStretch(1)"))
+    check("  名字不再用 stretch 吃掉剩余空间",
+          "row.addWidget(title, 1)" not in control_bar)
+    #  真机要求（2026-10-06）："这一栏至少保证完全显示" + "最小宽度是动态的"
+    #  —— 算法在 _apply_control_min_width() 里（按当前的按钮/说明/状态文字重算）
     check("  控制条算了最小宽度（完整放下按钮 + 布局说明 + 状态）",
-          "bar.setMinimumWidth(needed)" in control_bar
-          and "_control_min_width" in control_bar)
+          "def _apply_control_min_width(" in tab_src
+          and "bar.setMinimumWidth(needed)" in tab_src)
     check("  最小宽度只在变化时设置（避免重排循环）",
-          "needed != getattr(self, \"_control_min_width\", -1)" in control_bar)
-    check("  最小宽度封了顶（不把窗口撑爆）", ", 620)" in control_bar)
+          "_control_min_width" in tab_src
+          and "needed != getattr(self, \"_control_min_width\", -1)" in tab_src)
+    check("  最小宽度封了顶（不把窗口撑爆）", ", 900)" in tab_src)
+    check("  最小宽度是动态的（说明文字变了会重算）",
+          "self._apply_control_min_width()" in tab_src
+          and "layout_label.setText(" in tab_src)
+    check("  名字至少留 9 个字符 + 省略号的宽度",
+          'horizontalAdvance("123456789")' in tab_src
+          and 'horizontalAdvance("…")' in tab_src)
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0

@@ -1279,7 +1279,7 @@ class BotTab(QWidget):
         self.status_label = QLabel("未启动", bar)
         self.status_label.setToolTip("机器人整体状态")
 
-        row.addWidget(title, 1)          # 1 = 机器人名吃掉剩余空间（见下面的说明）
+        row.addWidget(title)
         row.addSpacing(8)
         row.addWidget(self.start_button)
         row.addWidget(self.stop_button)
@@ -1287,40 +1287,83 @@ class BotTab(QWidget):
         row.addWidget(self.edit_button)
         row.addWidget(self.layout_button)
         row.addWidget(self.layout_label)
-        #  ⚠️ 这里**不能**再 addStretch(1)：机器人名设了 Ignored 尺寸策略（不按文字
-        #  宽度索要空间，免得和左栏抢宽度），而 Ignored 的控件"给多少用多少" ——
-        #  若再有个 stretch 抢剩余空间，名字与说明就会被分到 **0 宽**、整排文字消失
-        #  （真机 2026-10-06：控制条上"有些文字描述没了"；同样的坑在窗格标题栏
-        #  也踩过一次）。
         row.addWidget(self.status_label)
-        #  机器人名最长 → 用 Ignored（宽度随布局、放不下就被裁）；
-        #  "只看主程序 | 1 个窗格" 与状态都很短 → 用默认策略（索要空间小，
-        #  不会造成抢宽度，但**必须看得见**）。
+        #  真机要求（2026-10-06）："改变宽度时……我希望都是吸住左侧" ——
+        #  多余空间全部丢到**最右边**（stretch 放最后），这样机器人名、按钮、
+        #  布局说明、状态是**紧挨着靠左排**的，而不是被推到两端。
+        row.addStretch(1)
+        #  名字：手写省略（见 _apply_control_elide），因此它的"文字宽度"很小、
+        #  不会和左栏抢宽度；用默认策略即可（不会像 Ignored 那样被 stretch 挤成 0 宽）。
         title.setMinimumWidth(0)
-        title.setSizePolicy(QSizePolicy.Policy.Ignored,
-                            QSizePolicy.Policy.Preferred)
         for label in (self.layout_label, self.status_label):
             label.setMinimumWidth(0)
-        #  真机要求（2026-10-06）："这一栏至少保证完全显示" ——
-        #  按各控件实际宽度算出"完整放下这一栏"所需的最小宽度，交给 Qt：
-        #  窗口/分隔条再也不能把这一栏裁掉（窗格太窄时窗口会被自动撑宽）。
-        #  名字只按 4 个汉字预留（名字长就让它先省略，按钮与状态必须完整）。
-        #  ⚠️ 只在数值变化时设置，避免"设最小宽度 → 重排 → 又设"的循环。
+        self._control_bar = bar
+        self._control_title = title
+        self._control_min_width = -1
+        self._apply_control_min_width()
+        return bar
+
+    def _apply_control_elide(self) -> None:
+        """机器人名放不下就省略成 "前半…"（同窗格标题那套做法）。
+
+        为什么手动省略：QLabel 的 minimumSizeHint 就是文字宽度，名字一长就会把
+        这一栏（进而把右侧）的最小宽度顶起来、和左栏抢宽度；手动把文字改短，
+        minimumSizeHint 自然就小了 —— 既不抢宽度，又能一直看见名字。
+        """
+        title = getattr(self, "_control_title", None)
+        bar = getattr(self, "_control_bar", None)
+        if title is None or bar is None:
+            return
+        full = self.bot.name or ""
+        if not full:
+            return
+        try:
+            others = 0
+            for widget in (self.start_button, self.stop_button, self.restart_button,
+                           self.edit_button, self.layout_button,
+                           self.layout_label, self.status_label):
+                others += max(0, widget.sizeHint().width()) + 6
+            available = bar.width() - others - 16
+            if available <= 0:
+                return
+            metrics = title.fontMetrics()
+            shown = metrics.elidedText(full, Qt.TextElideMode.ElideRight,
+                                       max(24, available))
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        if shown != title.text():
+            title.setText(shown)
+
+    def _apply_control_min_width(self) -> None:
+        """动态最小宽度：保证这一栏完整显示（名字至少显示 9 个字符 + …）。
+
+        真机要求（2026-10-06）：
+        > "对整个实例操作的这一栏的最小显示内容差不多是【123456789…】这个大小的
+        >   文字加左侧全部，这个最小宽度实际上应该是动态的，根据显示的内容来变"
+
+        所以这里每次都按**当前**的按钮/说明/状态文字宽度重算（布局说明会从
+        "只看主程序" 变成 "左右分，右侧再上下分"，宽度自然不一样），
+        只有数值真的变了才 setMinimumWidth（避免"设最小宽度 → 重排 → 又设"的循环）。
+        """
+        bar = getattr(self, "_control_bar", None)
+        title = getattr(self, "_control_title", None)
+        if bar is None or title is None:
+            return
         try:
             metrics = title.fontMetrics()
-            name_min = metrics.horizontalAdvance("汉") * 4
+            name_min = (metrics.horizontalAdvance("123456789")
+                        + metrics.horizontalAdvance("…"))
             needed = name_min + 8
             for widget in (self.start_button, self.stop_button, self.restart_button,
                            self.edit_button, self.layout_button,
                            self.layout_label, self.status_label):
                 needed += max(0, widget.sizeHint().width()) + 6
-            needed = int(min(max(needed + 8, 320), 620))     # 封顶，别把窗口撑爆
+            needed = int(min(max(needed + 8, 320), 900))
         except (RuntimeError, AttributeError, TypeError, ValueError):
-            needed = 0
-        if needed and needed != getattr(self, "_control_min_width", -1):
+            return
+        if needed != getattr(self, "_control_min_width", -1):
             self._control_min_width = needed
             bar.setMinimumWidth(needed)
-        return bar
 
     def _prepare_program_maps(self) -> None:
         """构建 key / 程序 id / 工作目录等映射（布局重建时复用）。"""
@@ -1762,6 +1805,14 @@ class BotTab(QWidget):
                     result["{}#pid".format(key)] = str(pid)
         return result
 
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        """窗口大小变化：重算控制条里的名字省略（放不下就 "前半…"）。"""
+        super().resizeEvent(event)
+        try:
+            self._apply_control_elide()
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+
     def refresh_statuses(self) -> None:
         """刷新所有窗格标题与整体状态标签。"""
         states = self._state_map()
@@ -1820,6 +1871,10 @@ class BotTab(QWidget):
                     self.pane_count(),
                 )
             )
+        #  这一栏的最小宽度是**动态**的：布局说明（"左右分，右侧再上下分"）与状态
+        #  文字会变，最小宽度要跟着重算，否则会出现"这一栏被裁一点"的情况
+        #  （真机要求 2026-10-06）。
+        self._apply_control_min_width()
         self._update_controls_enabled()
 
     def _update_controls_enabled(self) -> None:
