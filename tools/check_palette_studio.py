@@ -347,6 +347,10 @@ def run_wiring_checks() -> None:
     check("  分割条透明且无边框（窗格自带边框已足够区分区域）",
           "QSplitter::handle {{ background-color: transparent; border: 0; }}"
           in theme_src)
+    check("  左栏与右侧之间的主分隔条要看得见（真机 2026-10-06）",
+          "QSplitter#centralSplitter::handle" in theme_src
+          and "setObjectName" in (ROOT / "app" / "ui" / "main_window.py")
+          .read_text(encoding="utf-8"))
     check("  没给分割条画任何线（整条或细线都不行）",
           "QSplitter::handle {{ background-color: {border}; }}" not in theme_src
           and "QSplitter::handle:horizontal" not in theme_src)

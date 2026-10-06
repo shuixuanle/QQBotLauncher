@@ -1576,6 +1576,10 @@ def chrome_qss(widget: Optional[QWidget] = None) -> str:
         # 改成 1px 细线后仍然显得多余）。这里彻底透明 + 无边框，
         # 拖动区域宽度仍由 setHandleWidth(3) 决定（鼠标还是抓得到）。
         "QSplitter::handle {{ background-color: transparent; border: 0; }}"
+        #  例外：左栏与右侧之间的那条**主分隔条要看得见**
+        #  （真机 2026-10-06："框住的这一块最好还是补上分隔线"）。
+        #  颜色仍走"边框/分隔线"角色；窗格之间的分割条保持完全透明（上一条规则）。
+        "QSplitter#centralSplitter::handle {{ background-color: {border}; }}"
         "QToolBar, QToolBar#botBar {{ color: {text}; background-color: transparent; border: 0; }}"
         "QToolBar QToolButton {{ color: {text}; }}"
         "QToolBar QToolButton:disabled {{ color: {disabled}; }}"
