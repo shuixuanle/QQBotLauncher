@@ -99,6 +99,14 @@ def main() -> int:
     check("MIN < MAX（上下限没写反）",
           "MIN_NAV_WIDTH = 180" in src and "MAX_NAV_WIDTH = 640" in src)
 
+    print("\n[6] 窗口尺寸：拖小窗口不许裁内容（真机 2026-10-06）")
+    check("  主窗口有 resizeEvent（把最小宽度对齐到内容需要）",
+          "def resizeEvent(self, event)" in src and "_window_min_width" in src)
+    check("  最小宽度取 max(下限, 内容需要)",
+          "max(MIN_WINDOW_WIDTH, self.minimumSizeHint().width())" in src)
+    check("  左栏按钮的最小宽度把布局边距也算进去了",
+          "margins.left() + margins.right()" in src)
+
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 

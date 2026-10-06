@@ -141,6 +141,8 @@ DEFAULT_LOG_LINES = 5000
 
 #: 左侧导航栏默认宽度 / 最小宽度 / 最大宽度（像素）
 DEFAULT_NAV_WIDTH = 280
+#: 窗口最小宽度下限（实际最小值还会跟着内容走，见 resizeEvent）
+MIN_WINDOW_WIDTH = 460
 MIN_NAV_WIDTH = 180
 #: 上限：避免记忆里存进一个夸张的宽度（例如窗口曾最大化过）把实例区挤没
 MAX_NAV_WIDTH = 640
@@ -699,6 +701,25 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._restore_open_tabs)
         # N3.0：跟随系统时定时检查系统深浅（paletteChanged 在部分 Windows 上不上报）
         self._start_os_theme_watch()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        """窗口大小变化：把窗口最小宽度重新对齐到"内容的实际需要"。
+
+        真机 2026-10-06："没有解决对整个管理器窗口大小操作时被压缩的问题" ——
+        原因是主窗口自己写死了 `setMinimumWidth(460)`，而 Qt 里**显式设置的最小值
+        会盖过布局算出来的最小值**，于是把窗口拖到 460 宽时，控制条 / 左栏按钮
+        就被裁掉了。这里改成"跟着内容走"：取 max(460, minimumSizeHint().width())，
+        内容需要多宽，窗口就拦在多宽（高度不受影响）。
+        ⚠️ 只在数值变化时 setMinimumWidth（否则会变成"设最小值 → 重排 → 又设"的循环）。
+        """
+        super().resizeEvent(event)
+        try:
+            need = max(MIN_WINDOW_WIDTH, self.minimumSizeHint().width())
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        if need != getattr(self, "_window_min_width", -1):
+            self._window_min_width = need
+            self.setMinimumWidth(need)
 
     def showEvent(self, event) -> None:
         """窗口第一次显示后，再补一次菜单栏配色（N2.8）。
@@ -2157,9 +2178,16 @@ class MainWindow(QMainWindow):
         #  和 MIN_NAV_WIDTH 取较大者交给面板：分隔条再也压不到"按钮被裁"的程度，
         #  窗口不够宽时会被自动撑到这个下限（高度不变）。
         try:
+            #  真机 2026-10-06："【编辑和新建 bot】左右两边都有一点被遮住了" ——
+            #  之前只算了按钮本身的宽度，漏掉了**布局边距**与按钮内边距，
+            #  所以左右各少一点点。这里把面板边距、行间距、按钮自身的内边距
+            #  全都算进去，再留 24px 余量。
+            margins = layout.contentsMargins()
             buttons_need = (self.nav_list_button.sizeHint().width()
                             + self.nav_new_button.sizeHint().width()
-                            + 6 + 16)          # 两按钮间距 + 行左右边距
+                            + top_row.spacing()
+                            + margins.left() + margins.right()
+                            + 24)
         except (RuntimeError, AttributeError, TypeError, ValueError):
             buttons_need = 0
         panel.setProperty("navButtonsWidth", int(buttons_need))
