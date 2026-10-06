@@ -168,6 +168,13 @@ def main() -> int:
           "title.setSizePolicy(QSizePolicy.Policy.Ignored" in control_bar
           and "self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored"
           not in control_bar)
+    #  真机要求（2026-10-06）："这一栏至少保证完全显示"
+    check("  控制条算了最小宽度（完整放下按钮 + 布局说明 + 状态）",
+          "bar.setMinimumWidth(needed)" in control_bar
+          and "_control_min_width" in control_bar)
+    check("  最小宽度只在变化时设置（避免重排循环）",
+          "needed != getattr(self, \"_control_min_width\", -1)" in control_bar)
+    check("  最小宽度封了顶（不把窗口撑爆）", ", 620)" in control_bar)
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0

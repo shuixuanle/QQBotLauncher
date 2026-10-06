@@ -1301,6 +1301,25 @@ class BotTab(QWidget):
                             QSizePolicy.Policy.Preferred)
         for label in (self.layout_label, self.status_label):
             label.setMinimumWidth(0)
+        #  真机要求（2026-10-06）："这一栏至少保证完全显示" ——
+        #  按各控件实际宽度算出"完整放下这一栏"所需的最小宽度，交给 Qt：
+        #  窗口/分隔条再也不能把这一栏裁掉（窗格太窄时窗口会被自动撑宽）。
+        #  名字只按 4 个汉字预留（名字长就让它先省略，按钮与状态必须完整）。
+        #  ⚠️ 只在数值变化时设置，避免"设最小宽度 → 重排 → 又设"的循环。
+        try:
+            metrics = title.fontMetrics()
+            name_min = metrics.horizontalAdvance("汉") * 4
+            needed = name_min + 8
+            for widget in (self.start_button, self.stop_button, self.restart_button,
+                           self.edit_button, self.layout_button,
+                           self.layout_label, self.status_label):
+                needed += max(0, widget.sizeHint().width()) + 6
+            needed = int(min(max(needed + 8, 320), 620))     # 封顶，别把窗口撑爆
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            needed = 0
+        if needed and needed != getattr(self, "_control_min_width", -1):
+            self._control_min_width = needed
+            bar.setMinimumWidth(needed)
         return bar
 
     def _prepare_program_maps(self) -> None:
