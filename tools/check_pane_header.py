@@ -179,13 +179,18 @@ def main() -> int:
     check("  最小宽度只在变化时设置（避免重排循环）",
           "_control_min_width" in tab_src
           and "needed != getattr(self, \"_control_min_width\", -1)" in tab_src)
-    check("  最小宽度封了顶（不把窗口撑爆）", ", 900)" in tab_src)
+    check("  最小宽度只防极端值（封顶 2400，不能让窗口缩到裁内容）",
+          ", 2400)" in tab_src)
     check("  最小宽度是动态的（说明文字变了会重算）",
           "self._apply_control_min_width()" in tab_src
           and "layout_label.setText(" in tab_src)
     check("  名字至少留 9 个字符 + 省略号的宽度",
           'horizontalAdvance("123456789")' in tab_src
           and 'horizontalAdvance("…")' in tab_src)
+
+    check("  最小宽度不被小上限截断（否则窗口缩小就裁右边）",
+          "bar.setMinimumWidth(needed)" in tab_src
+          and ", 900)" not in tab_src)
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0

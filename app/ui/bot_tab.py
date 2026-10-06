@@ -1358,7 +1358,11 @@ class BotTab(QWidget):
                            self.edit_button, self.layout_button,
                            self.layout_label, self.status_label):
                 needed += max(0, widget.sizeHint().width()) + 6
-            needed = int(min(max(needed + 8, 320), 900))
+            #  ⚠️ 封顶不能太小：真机 2026-10-06 反馈"右边的内容会被缩小的窗口隐藏"
+            #  —— 就是因为这里封了 900px，而这一栏实际需要 1200+，窗口缩到 900 以下
+            #  就开始裁右边。现在封顶给到 2400（等于不封，只防极端数值），
+            #  真正的最小宽度由内容决定 —— 这正是"至少保证完全显示"的含义。
+            needed = int(min(max(needed + 8, 320), 2400))
         except (RuntimeError, AttributeError, TypeError, ValueError):
             return
         if needed != getattr(self, "_control_min_width", -1):
