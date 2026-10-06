@@ -2153,7 +2153,9 @@ class MainWindow(QMainWindow):
         """左侧竖栏：按钮行 + 机器人/程序两级树 + 底部按钮 + 提示。"""
         panel = QWidget(self.central_splitter)
         panel.setObjectName("navPanel")
-        panel.setMinimumWidth(120)
+        #  先用常量兜底；真正的下限在 _nav_min_width()（按顶部两个按钮算），
+        #  由 _restore_nav_state() 应用（真机 2026-10-06：按钮不能左右被遮）
+        panel.setMinimumWidth(MIN_NAV_WIDTH)
         panel.setStyleSheet(self._nav_style_sheet())
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(6, 6, 6, 6)
