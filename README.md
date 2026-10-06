@@ -1241,11 +1241,12 @@ QQBot启动管理器/
 │       ├── edit_bot_dialog.py   # 新建/编辑 Bot 的对话框（程序可动态增删）
 │       ├── bot_list_dialog.py   # 「查看已有 bot」对话框（状态列表 + 批量操作）
 │       ├── palette_dialog.py    # 配色工作台（视图→外观→配色工作台…）：改完立即生效
-│       └── start_menu.py        # 「启动全部 ▾」的树形勾选菜单（挑这次要启动哪些程序）
+│       ├── start_menu.py        # 「启动全部 ▾」的树形勾选菜单（挑这次要启动哪些程序）
+│       └── _selftest_bots_config.json  # 自检用的配置样本（--selftest 读取）
 ├── tools/
 │   ├── run_all_checks.py        # 一次跑完所有检查器（末尾汇总 通过/失败/跳过）
 │   ├── run_all_checks.bat       # 同上，双击入口（chcp 65001 + 自动找解释器）
-│   ├── check_*.py               # 29 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
+│   ├── check_*.py               # 31 个检查器：每个都对应一个踩过的坑（见 CONTRIBUTING.md 的表）
 │   ├── palette_studio.py        # 配色工作台：真控件上试色 → 存成自定义配色（需 PyQt6）
 │   ├── _theme_probe.py          # 检查器公用：把 theme.py 里不依赖 Qt 的部分抠出来跑
 │   ├── check_definition_order.py # 真·导入测试 + 「先用后定义」检查（见 CONTRIBUTING.md）
@@ -1263,7 +1264,9 @@ QQBot启动管理器/
 ├── 启动管理器（普通 / 管理员）.pyw  # pythonw 启动，屏幕上零控制台
 ├── 启动方式说明.md              # 各种启动方式对比 / 打包 exe / 安全警报 / 常见坑
 ├── CONTRIBUTING.md              # 贡献指南（Issue 模板 / PR 流程 / 自检命令 / 代码约定）
+├── launcher.py                  # exe 启动器源码（打包出来的 exe 就是它）
 ├── bots_config.json             # 机器人配置（首次运行自动生成）
+├── bots_config.example.json     # 配置样板（不含个人路径，便于对照字段）
 ├── requirements.txt             # PyQt6>=6.6.0
 ├── LICENSE
 └── README.md
