@@ -22,8 +22,12 @@ block_cipher = None
 
 # 需要一起打进去的数据文件（当前只有脚本示例；配置文件不打进去，
 # 因为首次运行会在 exe 旁边自动生成）
+#  只打"给使用者看的说明"，**绝不整目录打包** ——
+#  scripts/ 里可能躺着作者本机专用的东西（真机事故 2026-10-06：
+#  整目录打包把 hydrant_dir.txt 里的个人路径 / start_hydrant.bat 一起塞进了 exe，
+#  别人下载到的包里就带着作者的本机路径）。下面用白名单逐个列出。
 datas = [
-    (str(PROJECT_ROOT / "scripts"), "scripts"),
+    (str(PROJECT_ROOT / "scripts" / "README.md"), "scripts"),
 ]
 
 hiddenimports = [

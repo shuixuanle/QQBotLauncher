@@ -45,6 +45,25 @@ def info(label: str, value) -> None:
     print("  {:<28} {}".format(label, value))
 
 
+def spec_code(text: str) -> str:
+    """只保留 spec 里**真正的代码行**（去掉注释与文档字符串）。
+
+    为什么需要：隐私检查是"看 spec 里有没有提到某个文件名"，而注释/文档字符串里
+    恰恰会**说明**"不要把 xxx 打进去" —— 不去掉的话，解释文字反而会被当成违规
+    （真机 2026-10-06 第一次跑就误报了 3 条）。
+    """
+    out, in_doc = [], False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.count('"""') == 1:
+            in_doc = not in_doc
+            continue
+        if in_doc or stripped.startswith("#"):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def preflight() -> None:
     print("[1] 构建环境")
     info("Python", "{} ({})".format(sys.version.split()[0], sys.executable))
@@ -91,6 +110,33 @@ def preflight() -> None:
         text = MANIFEST_ADMIN.read_text(encoding="utf-8")
         check("  清单里 requestedExecutionLevel = requireAdministrator",
               'level="requireAdministrator"' in text)
+
+    print("\n[3] 隐私检查：**不许把作者本机的东西打进 exe**")
+    #  真机事故（2026-10-06）：spec 里原来写的是整目录 (PROJECT_ROOT/"scripts", "scripts")，
+    #  于是作者本机专用的 scripts\hydrant_dir.txt（里面是 D:\BOTBENTI\... 这种个人路径）
+    #  和 start_hydrant.bat 一起被打进了 exe —— 别人下载到的包里带着作者的本机路径。
+    for spec in (SPEC_NORMAL, SPEC_ADMIN):
+        if not spec.exists():
+            continue
+        name = spec.name
+        #  ⚠️ 只看代码行：注释/文档字符串里会**说明**"别打某个文件"，
+        #  不去掉的话解释文字反而会被判违规（第一次跑就误报 3 条）。
+        text = spec_code(spec.read_text(encoding="utf-8"))
+        check("  {}：没有整目录打包 scripts/".format(name),
+              '(PROJECT_ROOT / "scripts", "scripts")' not in text)
+        check("  {}：没有把 bots_config.json 打进包".format(name),
+              "bots_config.json" not in text)
+        #  白名单里的文件必须真的存在（否则打包会失败，早点说清楚）
+        check("  {}：白名单文件都在（scripts/README.md）".format(name),
+              (ROOT / "scripts" / "README.md").exists())
+    #  本机专用文件绝不能被 spec 引用
+    for personal in ("hydrant_dir.txt", "start_hydrant.bat", "README-start_hydrant.md"):
+        hits = []
+        for spec in (SPEC_NORMAL, SPEC_ADMIN):
+            if spec.exists() and personal in spec_code(spec.read_text(encoding="utf-8")):
+                hits.append(spec.name)
+        check("  本机专用文件没被写进 spec：{}".format(personal), not hits,
+              "；".join(hits))
 
 
 def run_pyinstaller(spec: Path) -> bool:

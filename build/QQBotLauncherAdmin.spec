@@ -18,8 +18,12 @@ PROJECT_ROOT = Path(SPECPATH).resolve().parent  # noqa: F821
 
 block_cipher = None
 
+#  只打"给使用者看的说明"，**绝不整目录打包** ——
+#  scripts/ 里可能躺着作者本机专用的东西（真机事故 2026-10-06：
+#  整目录打包把 hydrant_dir.txt 里的个人路径 / start_hydrant.bat 一起塞进了 exe，
+#  别人下载到的包里就带着作者的本机路径）。下面用白名单逐个列出。
 datas = [
-    (str(PROJECT_ROOT / "scripts"), "scripts"),
+    (str(PROJECT_ROOT / "scripts" / "README.md"), "scripts"),
 ]
 
 hiddenimports = [
