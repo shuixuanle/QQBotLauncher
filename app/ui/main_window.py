@@ -1037,8 +1037,22 @@ class MainWindow(QMainWindow):
         self.current_bot_button.setToolTip(
             "对当前 Bot / 当前程序：启动 · 停止 · 重启（快捷键 F5 / Shift+F5 / Ctrl+R）")
         self.current_bot_button.clicked.connect(self._on_current_bot_button)
+        #  真机要求（2026-10-06）："给当前 bot 左边隔开一点" ——
+        #  左边留白，别贴着窗口边（右边也留一点，见下面的 gap）。
+        gap_before = QWidget(bar)
+        gap_before.setFixedWidth(10)
+        bar.addWidget(gap_before)
         bar.addWidget(self.current_bot_button)
+        #  真机要求（2026-10-06）："给当前 bot 这边隔开一点" ——
+        #  「当前 Bot ▾」是"对当前实例操作"的入口，和后面的窗口/管理两组之间留点
+        #  气口（纯间隔控件，不占逻辑），免得按钮和分隔线糊在一起。
+        gap = QWidget(bar)
+        gap.setFixedWidth(10)
+        bar.addWidget(gap)
         bar.addSeparator()
+        gap_after = QWidget(bar)
+        gap_after.setFixedWidth(6)
+        bar.addWidget(gap_after)
         bar.addAction(self.action_open_all_windows)
         bar.addAction(self.action_bot_list)
         bar.addSeparator()

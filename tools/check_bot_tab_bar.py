@@ -263,6 +263,15 @@ def main() -> int:
     check("  自检断言「折叠后标签栏可见」", "折叠左栏后标签栏必须自动出现" in src)
     check("  自检断言「点标签能切页面」", "点标签应当切到那个机器人的窗口" in src)
 
+    print("\n[7] 工具栏留白：当前 Bot 左右都要隔开（真机 2026-10-06）")
+    check("  当前 Bot 左边有间隔控件", "gap_before.setFixedWidth(10)" in bb_src)
+    check("  当前 Bot 右边也有间隔控件（再分隔线 + 小留白）",
+          "gap.setFixedWidth(10)" in bb_src and "gap_after.setFixedWidth(6)" in bb_src)
+    check("  间隔控件加在按钮前后（不是加在别处）",
+          bb_src.index("bar.addWidget(gap_before)")
+          < bb_src.index("bar.addWidget(self.current_bot_button)")
+          < bb_src.index("bar.addWidget(gap)"))
+
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 
