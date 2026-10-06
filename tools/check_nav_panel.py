@@ -67,8 +67,13 @@ def main() -> int:
     print("\n[3] 面板本身：不许把最大宽度写死（写死就真的拖不动了）")
     panel_part = src[src.find("def _build_nav("):src.find("def _build_placeholder_page(")]
     check("navPanel 没有 setMaximumWidth", "setMaximumWidth" not in panel_part)
-    check("navPanel 的最小宽度就是 MIN_NAV_WIDTH",
-          "panel.setMinimumWidth(MIN_NAV_WIDTH)" in src)
+    #  真机 2026-10-06：左栏的最小宽度改成"至少放得下顶部那两个按钮"
+    #  （按按钮实际宽度算，和 MIN_NAV_WIDTH 取较大者）
+    check("navPanel 的最小宽度按顶部按钮算（至少放得下两个按钮）",
+          "self._nav_min_width()" in src and "navButtonsWidth" in src)
+    check("最小宽度仍是 MIN_NAV_WIDTH 与按钮需求取较大者",
+          "need = max(need, int(panel.property" in src
+          and "MIN_NAV_WIDTH" in src)
     check("分隔条不是 0 宽（0 宽拖不到）",
           "setHandleWidth(5)" in src or "setHandleWidth(4)" in src
           or "setHandleWidth(6)" in src)

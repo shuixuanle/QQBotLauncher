@@ -192,6 +192,10 @@ def main() -> int:
           "bar.setMinimumWidth(needed)" in tab_src
           and ", 900)" not in tab_src)
 
+    check("  布局说明也会按空间省略（宁可少显示，也不被窗口裁掉）",
+          "_layout_full_text" in tab_src
+          and "shown_layout = metrics.elidedText(" in tab_src)
+
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 

@@ -1333,6 +1333,28 @@ class BotTab(QWidget):
             return
         if shown != title.text():
             title.setText(shown)
+        #  布局说明（"左右分，右侧再上下分 | 3 个窗格"）也可能很长 ——
+        #  真机 2026-10-06："右边的内容会被缩小的窗口隐藏"。这里在窗口实在不够宽时
+        #  把它省略成 "左右分，右侧再…"：**宁可少显示说明，也不让它被窗口裁掉**。
+        layout_label = getattr(self, "layout_label", None)
+        if layout_label is None:
+            return
+        try:
+            full_layout = getattr(self, "_layout_full_text", "") or layout_label.text()
+            if not full_layout:
+                return
+            others = 0
+            for widget in (self.start_button, self.stop_button, self.restart_button,
+                           self.edit_button, self.layout_button, self.status_label):
+                others += max(0, widget.sizeHint().width()) + 6
+            metrics = layout_label.fontMetrics()
+            room = bar.width() - others - title.width() - 24
+            shown_layout = metrics.elidedText(
+                full_layout, Qt.TextElideMode.ElideRight, max(24, room))
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            return
+        if shown_layout != layout_label.text():
+            layout_label.setText(shown_layout)
 
     def _apply_control_min_width(self) -> None:
         """动态最小宽度：保证这一栏完整显示（名字至少显示 9 个字符 + …）。
@@ -1867,6 +1889,12 @@ class BotTab(QWidget):
             status_label.setStyleSheet("color: {};".format(color))
         layout_label = getattr(self, "layout_label", None)
         if layout_label is not None:
+            self._layout_full_text = "{}　|　{} 个窗格".format(
+                layout_model.LAYOUT_KIND_LABELS.get(
+                    self.layout_kind(), self.layout_kind()
+                ),
+                self.pane_count(),
+            )
             layout_label.setText(
                 "{}　|　{} 个窗格".format(
                     layout_model.LAYOUT_KIND_LABELS.get(

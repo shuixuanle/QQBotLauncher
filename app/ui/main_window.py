@@ -2152,6 +2152,17 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self.nav_list_button)
         top_row.addWidget(self.nav_new_button)
         layout.addLayout(top_row)
+        #  真机要求（2026-10-06）："左侧栏的两个按钮至少能完全显示" ——
+        #  按两个按钮的**实际需要宽度**算出左栏的最小宽度（按钮并排 + 间距 + 边距），
+        #  和 MIN_NAV_WIDTH 取较大者交给面板：分隔条再也压不到"按钮被裁"的程度，
+        #  窗口不够宽时会被自动撑到这个下限（高度不变）。
+        try:
+            buttons_need = (self.nav_list_button.sizeHint().width()
+                            + self.nav_new_button.sizeHint().width()
+                            + 6 + 16)          # 两按钮间距 + 行左右边距
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            buttons_need = 0
+        panel.setProperty("navButtonsWidth", int(buttons_need))
 
         # ---- 机器人 / 程序两级树 ----
         self.nav_tree = QTreeWidget(panel)
@@ -2936,7 +2947,7 @@ class MainWindow(QMainWindow):
             try:
                 if visible:
                     # 展开前先恢复最小宽度，否则 setVisible(True) 时会被压成 0 宽
-                    panel.setMinimumWidth(MIN_NAV_WIDTH)
+                    panel.setMinimumWidth(self._nav_min_width())
                 panel.setVisible(visible)
             except RuntimeError:
                 pass
@@ -3019,6 +3030,21 @@ class MainWindow(QMainWindow):
             self.toggle_nav(True)
         self.statusBar().showMessage("左栏宽度已恢复为 {} 像素。".format(DEFAULT_NAV_WIDTH), 5000)
 
+    def _nav_min_width(self) -> int:
+        """左栏的最小宽度：至少放得下顶部那两个按钮（真机 2026-10-06 要求）。
+
+        两个按钮（"查看已有 bot" / "编辑或新建 bot"）并排，比 MIN_NAV_WIDTH 宽 ——
+        所以取两者较大者，分隔条再也不能把按钮裁掉。
+        """
+        panel = getattr(self, "nav_panel", None)
+        need = MIN_NAV_WIDTH
+        if panel is not None:
+            try:
+                need = max(need, int(panel.property("navButtonsWidth") or 0))
+            except (RuntimeError, TypeError, ValueError):
+                need = MIN_NAV_WIDTH
+        return need
+
     def toggle_nav(self, visible: Optional[bool] = None) -> bool:
         """折叠 / 展开左侧导航栏，返回折叠后的可见状态。
 
@@ -3059,7 +3085,7 @@ class MainWindow(QMainWindow):
         self._update_bot_tab_bar_visible()
         if visible:
             # 展开时确保最小宽度已恢复，否则可能被压成 0 宽
-            panel.setMinimumWidth(MIN_NAV_WIDTH)
+            panel.setMinimumWidth(self._nav_min_width())
         if getattr(self, "action_toggle_nav", None) is not None:
             self.action_toggle_nav.setText(
                 "展开左侧列表" if self._nav_collapsed else "折叠左侧列表"
