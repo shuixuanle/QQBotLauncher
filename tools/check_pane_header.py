@@ -196,6 +196,9 @@ def main() -> int:
           "_layout_full_text" in tab_src
           and "shown_layout = metrics.elidedText(" in tab_src)
 
+    check("  窗格分隔条够细（<=4px，别抢日志区宽度）但还抓得住（>=3px）",
+          "setHandleWidth(3)" in tab_src or "setHandleWidth(4)" in tab_src)
+
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0
 

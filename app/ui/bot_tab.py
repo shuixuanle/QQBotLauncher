@@ -1554,7 +1554,11 @@ class BotTab(QWidget):
             splitter = QSplitter(orientation, parent)
             splitter.setObjectName("paneSplitter")
             splitter.setChildrenCollapsible(False)
-            splitter.setHandleWidth(6)
+            #  真机要求（2026-10-06）："右侧日志区域的分割线可以细一点，
+            #  尽量使日志框看得见" —— 6px 太占地方，收到 3px（颜色仍由主题的
+            #  "边框/分隔线"角色决定，看得见但不抢空间）。
+            #  ⚠️ 别调到 2px 以下：太细会不好抓（拖动区域就是这条线本身）。
+            splitter.setHandleWidth(3)
             splitter.setOpaqueResize(True)
             setattr(splitter, "_pane_node", node)
             for child in node.children:
