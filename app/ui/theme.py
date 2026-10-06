@@ -1569,8 +1569,15 @@ def chrome_qss(widget: Optional[QWidget] = None) -> str:
         # 顺便让它跟着自定义配色走。
         "QToolBar::separator {{ background-color: {border}; width: 1px; margin: 3px 6px; }}"
         "QMainWindow::separator {{ background-color: {border}; width: 1px; height: 1px; }}"
-        # 窗格之间的分割条也一并给个可见的颜色（拖动区域宽度仍由 setHandleWidth 决定）
-        "QSplitter::handle {{ background-color: {border}; }}"
+        # 窗格之间的分割条：**不要整条涂成边框色**。
+        # 真机 2026-10-06："各程序日志区域的边框还是会与分隔线融合，我希望不要融合" ——
+        # 整条涂色时，分割条和两侧日志框的边框同色相邻，看上去糊成一条粗带子。
+        # 现在只画**中间那条 1px 细线**（背景透明，露出面板底色），
+        # 两侧自然留出空隙，分隔线与日志框边框一眼能分清。
+        # 拖动区域宽度仍由 setHandleWidth 决定（3px）。
+        "QSplitter::handle {{ background-color: transparent; }}"
+        "QSplitter::handle:horizontal {{ border-left: 1px solid {border}; }}"
+        "QSplitter::handle:vertical {{ border-top: 1px solid {border}; }}"
         "QToolBar, QToolBar#botBar {{ color: {text}; background-color: transparent; border: 0; }}"
         "QToolBar QToolButton {{ color: {text}; }}"
         "QToolBar QToolButton:disabled {{ color: {disabled}; }}"

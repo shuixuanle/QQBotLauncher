@@ -342,6 +342,13 @@ def run_wiring_checks() -> None:
     check("  QMainWindow::separator 也画了", "QMainWindow::separator" in theme_src)
     check("  QMenu::separator 也画了", "QMenu::separator" in theme_src)
     check("  QSplitter::handle（窗格分割条）也画了", "QSplitter::handle" in theme_src)
+    #  真机 2026-10-06："各程序日志区域的边框还是会与分隔线融合，我希望不要融合"
+    #  —— 所以分割条只画中间 1px 细线，其余透明（两侧留出空隙）
+    check("  分割条只画 1px 细线，不整条涂色（免得与日志框边框融合）",
+          "QSplitter::handle {{ background-color: transparent; }}" in theme_src
+          and "QSplitter::handle:horizontal {{ border-left: 1px solid" in theme_src)
+    check("  没有把分割条整条涂成边框色",
+          "QSplitter::handle {{ background-color: {border}; }}" not in theme_src)
     check("  深色调色板的 Dark / Shadow 不是近黑色（改用边框色）",
           "QPalette.ColorRole.Dark, border" in theme_src
           and "QPalette.ColorRole.Shadow, border" in theme_src)
