@@ -105,9 +105,8 @@ def main() -> int:
     #  QLabel 默认拿"文字宽度"当最小宽度，所以这些标签必须设成 Ignored。
     tab_src = (ROOT / "app" / "ui" / "bot_tab.py").read_text(encoding="utf-8")
     widget_src = (ROOT / "app" / "ui" / "program_widget.py").read_text(encoding="utf-8")
-    check("  机器人标题行的标签设成了 Ignored（宽随布局）",
-          "for label in (title, self.layout_label, self.status_label):" in tab_src
-          and "QSizePolicy.Policy.Ignored" in tab_src)
+    check("  机器人名设成了 Ignored（宽随布局，不按文字宽度抢空间）",
+          "title.setSizePolicy(QSizePolicy.Policy.Ignored" in tab_src)
     check("  窗格标题行的标签也设成了 Ignored",
           "for _label in (self.title_label, self.status_label, self.count_label):"
           in widget_src)
@@ -134,6 +133,12 @@ def main() -> int:
           "self.actions_button" in title_bar
           and "_update_compact_mode" in tab_src
           and "_compact_threshold" in tab_src)
+    check("  操作按钮不自己写箭头字符（用框架自带的 menu-indicator）",
+          'QPushButton("操作", bar)' in title_bar
+          and "actions_button.setText" not in title_bar)
+    check("  窗格最小宽度把 PID 也算进去了（… + 运行中 + PID + 操作）",
+          "self.pid_label.sizeHint().width()" in tab_src
+          and "MIN_PANE_WIDTH = 190" in tab_src)
     #  真机要求（2026-10-05）：标题先省略成 "前半…"，只有到"只剩 3 个汉字 + …"
     #  时才收起四个按钮（按钮优先级更高）。所以：
     check("  标题会手动省略（QLabel 自己不会）",
@@ -150,6 +155,19 @@ def main() -> int:
           "_min_width_applied" in tab_src)
     check("  最小宽度封了顶（多窗格并排时不超过屏幕）",
           "MAX_PANE_MIN_WIDTH = 240" in tab_src)
+
+    print("\n[6] 机器人控制条：文字不许被 addStretch 挤没（真机 2026-10-06）")
+    _tab_start = tab_src.index("def _build_control_bar(")
+    _tab_end = tab_src.index("\n    def ", _tab_start + 10)
+    control_bar = tab_src[_tab_start:_tab_end]
+    check("  机器人名带 stretch=1（剩余空间归它）",
+          "row.addWidget(title, 1)" in control_bar)
+    check("  控制条里没有 addStretch 抢空间",
+          "row.addStretch(1)" not in control_bar)
+    check("  只有名字是 Ignored（说明与状态必须看得见）",
+          "title.setSizePolicy(QSizePolicy.Policy.Ignored" in control_bar
+          and "self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored"
+          not in control_bar)
 
     print("\n结果：", "全部通过" if not failures else "失败项 = {}".format(failures))
     return 1 if failures else 0

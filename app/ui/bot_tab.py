@@ -101,7 +101,7 @@ DEFAULT_SPLIT_RATIO = (65, 35)
 SPLIT_SETTLE_MS = 300
 #: 窗格最小宽度：至少要放得下省略号 + 状态 + 「操作 ▾」（真机 2026-10-05 要求：
 #: "日志区域窗口最小宽度建议至少保留文字部分的…加上右侧"）。
-MIN_PANE_WIDTH = 150
+MIN_PANE_WIDTH = 190
 #: 封顶：左右分屏三个窗格并排时，也不该比屏幕还宽
 MAX_PANE_MIN_WIDTH = 240
 
@@ -371,7 +371,9 @@ class PaneWidget(QWidget):
         #   · 一个字都放不下时，标题自己省略成 "前半…"，鼠标移上去用 tooltip 看全。
         # 关键：只在**跨过阈值的那一次**改可见性（状态没变就返回），否则
         # "改可见性 → 触发重排 → 又改可见性"会变成新的死循环。
-        self.actions_button = QPushButton("操作 \u25be", bar)
+        #  真机 2026-10-06：不要自己写 "▼"（用户那边打不出这个字符，而且看着突兀）
+        #  —— 按钮挂了菜单之后，**框架自己会画下拉箭头**，这里只写"操作"两个字。
+        self.actions_button = QPushButton("操作", bar)
         self.actions_button.setToolTip(
             "本窗格当前程序的：启动 · 停止 · 重启 · 清空日志")
         self._actions_menu = QMenu(self.actions_button)
@@ -463,10 +465,14 @@ class PaneWidget(QWidget):
         try:
             metrics = self.title_label.fontMetrics()
             dots = metrics.horizontalAdvance("…") + 8          # 标题至少留下 "…"
+            #  真机 2026-10-06：最小宽度要能同时放下
+            #  "…" + 状态（运行中）+ PID 数字 + 「操作」按钮（自带下拉箭头）
+            pid = max(0, self.pid_label.sizeHint().width())
             fixed = (dots
                      + max(0, label.sizeHint().width())
+                     + pid
                      + max(0, button.sizeHint().width())
-                     + 28)                                     # 间距与边距
+                     + 36)                                     # 间距与边距
         except (RuntimeError, AttributeError, TypeError, ValueError):
             return
         fixed = int(min(max(fixed, MIN_PANE_WIDTH), MAX_PANE_MIN_WIDTH))
@@ -1273,7 +1279,7 @@ class BotTab(QWidget):
         self.status_label = QLabel("未启动", bar)
         self.status_label.setToolTip("机器人整体状态")
 
-        row.addWidget(title)
+        row.addWidget(title, 1)          # 1 = 机器人名吃掉剩余空间（见下面的说明）
         row.addSpacing(8)
         row.addWidget(self.start_button)
         row.addWidget(self.stop_button)
@@ -1281,18 +1287,20 @@ class BotTab(QWidget):
         row.addWidget(self.edit_button)
         row.addWidget(self.layout_button)
         row.addWidget(self.layout_label)
-        row.addStretch(1)
+        #  ⚠️ 这里**不能**再 addStretch(1)：机器人名设了 Ignored 尺寸策略（不按文字
+        #  宽度索要空间，免得和左栏抢宽度），而 Ignored 的控件"给多少用多少" ——
+        #  若再有个 stretch 抢剩余空间，名字与说明就会被分到 **0 宽**、整排文字消失
+        #  （真机 2026-10-06：控制条上"有些文字描述没了"；同样的坑在窗格标题栏
+        #  也踩过一次）。
         row.addWidget(self.status_label)
-        #  这三个标签的内容会长（机器人名、"只看主程序 | 1 个窗格"……）。QLabel 默认
-        #  把"文字宽度"当成自己的最小宽度，右侧内容的 minimumSizeHint 就被撑大，
-        #  主分隔条再也没法把更多宽度给左栏 —— 真机 2026-10-05："左栏最大宽度被限制
-        #  得太窄，而且只在名字很长的测试实例打开时出现"。改成 Ignored：宽度交给布局。
-        #  ⚠️ 必须在三个标签都创建之后再设置（上一版写在这之前，直接 AttributeError
-        #     崩在启动路径上 —— 已由 check_definition_order.py 的 [3] 段盯着）。
-        for label in (title, self.layout_label, self.status_label):
+        #  机器人名最长 → 用 Ignored（宽度随布局、放不下就被裁）；
+        #  "只看主程序 | 1 个窗格" 与状态都很短 → 用默认策略（索要空间小，
+        #  不会造成抢宽度，但**必须看得见**）。
+        title.setMinimumWidth(0)
+        title.setSizePolicy(QSizePolicy.Policy.Ignored,
+                            QSizePolicy.Policy.Preferred)
+        for label in (self.layout_label, self.status_label):
             label.setMinimumWidth(0)
-            label.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                QSizePolicy.Policy.Preferred)
         return bar
 
     def _prepare_program_maps(self) -> None:
