@@ -138,22 +138,34 @@ def main() -> int:
         for bot in payload.get("bots", []):
             for program in bot.get("programs", []):
                 command = str(program.get("command", ""))
-                if "start_hydrant" not in command:
+                #  两种写法都算（真机 2026-10-06）：走启动脚本，或直接 dotnet 本体 ——
+                #  后者不会自提权，所以不弹 UAC、日志也留在管理器的日志区。
+                if "start_hydrant" not in command and not (
+                        "hydrant" in command.lower() and "dotnet" in command.lower()):
                     continue
                 found = True
                 where = "{} / {}".format(bot.get("name"), program.get("name"))
                 check("{}：命令里不含双引号".format(where), '"' not in command, command)
                 check("{}：命令里不含单引号".format(where), "'" not in command)
                 check("{}：不含反斜杠转义 \\\"".format(where), '\\"' not in command)
-                check("{}：就是 cmd.exe /c 调用脚本".format(where),
-                      command.strip().lower() == "cmd.exe /c start_hydrant.bat", command)
+                #  两种写法都算数（真机 2026-10-06）：走启动脚本，或直接 dotnet 本体。
+                #  直接启动的好处写在 README 的「还在弹 UAC？先查那条启动命令」一节：
+                #  自提权脚本会额外弹 UAC，并把日志带到它自己的控制台里。
+                direct = "hydrant" in command.lower() and "dotnet" in command.lower()
+                scripted = command.strip().lower() == "cmd.exe /c start_hydrant.bat"
+                check("{}：要么 cmd.exe /c 调脚本，要么直接 dotnet 本体".format(where),
+                      scripted or direct, command)
                 cwd = Path(str(program.get("cwd", "")))
-                check("{}：工作目录指向 scripts（命令里才不用写路径）".format(where),
-                      cwd.name.lower() == "scripts", str(cwd))
-                check("{}：via_shell 不需要开（命令里已含 cmd /c）".format(where),
-                      not program.get("via_shell", False))
+                if scripted:
+                    check("{}：工作目录指向 scripts（命令里才不用写路径）".format(where),
+                          cwd.name.lower() == "scripts", str(cwd))
+                    check("{}：via_shell 不需要开（命令里已含 cmd /c）".format(where),
+                          not program.get("via_shell", False))
+                else:
+                    check("{}：直接启动时工作目录要指向 bot 目录".format(where),
+                          bool(str(program.get("cwd", "")).strip()), str(cwd))
         if not found:
-            check("配置里能找到引用 start_hydrant 的程序", False, "没找到")
+            check("配置里能找到消防栓的程序（脚本或直接 dotnet 都算）", False, "没找到")
 
     print("\n[3] scripts\\README.md 讲清了目录用途（这个才进仓库）")
     readme = ROOT / "scripts" / "README.md"
